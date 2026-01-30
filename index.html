@@ -99,6 +99,7 @@
 </div>
 
 <div class="container" id="mainApp">
+    <div id="globalError" style="display:none; background: #ffebee; color: #c62828; padding: 10px; margin-bottom: 10px; border: 1px solid #ef9a9a; border-radius: 4px;"></div>
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h1>資料查詢系統</h1>
         <div>
@@ -114,9 +115,9 @@
     </div>
 
     <div class="tabs">
-        <div class="tab active" onclick="switchTab('images')">圖片資料</div>
-        <div class="tab" onclick="switchTab('phones')">分機資料</div>
-        <div class="tab" onclick="switchTab('dispatch')">調度電話</div>
+        <div class="tab active" onclick="switchTab('images', this)">圖片資料</div>
+        <div class="tab" onclick="switchTab('phones', this)">分機資料</div>
+        <div class="tab" onclick="switchTab('dispatch', this)">調度電話</div>
     </div>
 
     <!-- Images Section -->
@@ -174,20 +175,49 @@
     const SUPABASE_URL = 'https://uelrewmkmderacsqqkpk.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_LOi6vuzP3h-T14-43ujocQ_gjJpsToT';
     // ==========================================
+    
+    // Global Error Handler for user feedback
+    window.onerror = function(msg, url, line, col, error) {
+        const errDiv = document.getElementById('globalError');
+        if (errDiv) {
+            errDiv.style.display = 'block';
+            errDiv.innerHTML += `<div>${msg} (Line ${line})</div>`;
+        }
+        return false;
+    };
 
-    const supabase = (SUPABASE_URL !== 'YOUR_SUPABASE_URL') 
-        ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
-        : null;
+    let supabase = null;
+
+    // Initialize Supabase safely
+    try {
+        if (window.supabase) {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        } else {
+            console.error('Supabase library not loaded (window.supabase is undefined)');
+            // Alert is too intrusive on load, use the UI error display instead
+            setTimeout(() => {
+                const errDiv = document.getElementById('globalError');
+                if (errDiv) {
+                    errDiv.style.display = 'block';
+                    errDiv.innerHTML += `<div>錯誤：無法載入 Supabase 系統元件。請確認您的設備已連上網際網路，且未封鎖 CDN (jsdelivr)。</div>`;
+                }
+            }, 1000);
+        }
+    } catch (e) {
+        console.error('Supabase initialization failed:', e);
+    }
 
     if (!supabase) {
-        alert('請設定 index.html 中的 SUPABASE_URL 和 SUPABASE_KEY');
+        // alert('系統初始化失敗，請檢查網路連線');
     }
 
     let currentUser = null;
 
     // Initialize
     window.addEventListener('DOMContentLoaded', () => {
-        loadInitialData();
+        if (supabase) {
+            loadInitialData();
+        }
         updateUIState();
     });
 
@@ -203,6 +233,7 @@
 
     // Login Logic
     async function handleLogin() {
+        if (!supabase) { alert('系統未連線，無法登入'); return; }
         const user = document.getElementById('username').value;
         const pass = document.getElementById('password').value;
         
@@ -272,11 +303,16 @@
         if (dispatchData.length > 0) renderDispatchTable(dispatchData);
     }
 
-    function switchTab(tabName) {
+    function switchTab(tabName, clickedElement) {
         document.querySelectorAll('.section').forEach(el => el.classList.add('hidden'));
         document.getElementById(tabName + 'Section').classList.remove('hidden');
         document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-        event.target.classList.add('active');
+        // If clickedElement is provided, use it; otherwise find by text or index (fallback)
+        if (clickedElement) {
+            clickedElement.classList.add('active');
+        } else if (event && event.target) {
+             event.target.classList.add('active');
+        }
     }
 
     async function loadInitialData() {
