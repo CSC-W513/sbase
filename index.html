@@ -939,13 +939,11 @@
 
         try {
             const tableName = type === 'phones' ? 'phones' : 'dispatch_phones';
-            const { data, error } = await supabaseClient
-                .from(tableName)
-                .select('*')
-                .limit(10000)
-                .order('extension');
-
-            if (error) {
+            
+            let data;
+            try {
+                data = await fetchAllRecords(tableName);
+            } catch (error) {
                 alert('匯出失敗: ' + error.message);
                 console.error(error);
                 return;
