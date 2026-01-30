@@ -406,15 +406,20 @@
         const isEditable = !!currentUser;
         
         let html = `<table><thead><tr>
-            <th>分機</th><th>單位</th><th>位置</th><th>備註</th>
+            <th>分機</th><th>數位</th><th>LENS</th><th>MDF</th><th>G450</th><th>單位</th><th>位置</th><th>DID</th><th>備註</th>
             ${isEditable ? '<th>操作</th>' : ''}
         </tr></thead><tbody>`;
         
         data.forEach(row => {
             html += `<tr>
                 <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'extension', this.innerText)">${row.extension || ''}</td>
+                <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'type', this.innerText)">${row.type || ''}</td>
+                <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'lens', this.innerText)">${row.lens || ''}</td>
+                <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'mdf_port', this.innerText)">${row.mdf_port || ''}</td>
+                <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'g450_port', this.innerText)">${row.g450_port || ''}</td>
                 <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'unit', this.innerText)">${row.unit || ''}</td>
                 <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'location', this.innerText)">${row.location || ''}</td>
+                <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'did_number', this.innerText)">${row.did_number || ''}</td>
                 <td contenteditable="${isEditable}" onblur="updatePhone('${row.id}', 'note', this.innerText)">${row.note || ''}</td>
                 ${isEditable ? `<td><button onclick="deletePhone('${row.id}')">刪除</button></td>` : ''}
             </tr>`;
