@@ -1147,11 +1147,41 @@
             
             const table = type === 'phones' ? 'phones' : 'dispatch_phones';
             
-            // Map Excel columns to DB columns (simplified mapping)
+            // Map Excel columns to DB columns
             const records = jsonData.map(row => {
-                // If importing original format, we need mapping
-                // For simplicity, assuming headers match DB columns or are handled
-                return row; 
+                const newRow = {};
+                if (type === 'phones') {
+                    // Map Chinese headers to DB columns
+                    if (row['號碼'] !== undefined) newRow.extension = row['號碼'];
+                    if (row['數位'] !== undefined) newRow.type = row['數位'];
+                    if (row['LENS'] !== undefined) newRow.lens = row['LENS'];
+                    if (row['機房端子編號'] !== undefined) newRow.mdf_port = row['機房端子編號'];
+                    if (row['遠端機櫃 MC-ID (第幾對線)'] !== undefined) newRow.remote_mc_id = row['遠端機櫃 MC-ID (第幾對線)'];
+                    if (row['遠端機櫃UG-50編號'] !== undefined) newRow.UG50_port = row['遠端機櫃UG-50編號'];
+                    if (row['線組編號'] !== undefined) newRow.line_group_id = row['線組編號'];
+                    if (row['單位'] !== undefined) newRow.unit = row['單位'];
+                    if (row['裝機位置'] !== undefined) newRow.location = row['裝機位置'];
+                    if (row['通話等級'] !== undefined) newRow.call_class = row['通話等級'];
+                    if (row['副機數量'] !== undefined) newRow.sub_count = row['副機數量'];
+                    if (row['DID'] !== undefined) newRow.did_number = row['DID'];
+                    if (row['備註'] !== undefined) newRow.note = row['備註'];
+                    
+                    // Fallback for English headers if present (mixed usage)
+                    if (Object.keys(newRow).length === 0) return row;
+                } else {
+                    if (row['分機號碼'] !== undefined) newRow.extension = row['分機號碼'];
+                    if (row['C端子位置'] !== undefined) newRow.c_terminal = row['C端子位置'];
+                    if (row['LENS'] !== undefined) newRow.lens = row['LENS'];
+                    if (row['線組編號(機房)'] !== undefined) newRow.line_group_room = row['線組編號(機房)'];
+                    if (row['線組編號(現場)'] !== undefined) newRow.line_group_site = row['線組編號(現場)'];
+                    if (row['使用單位'] !== undefined) newRow.unit = row['使用單位'];
+                    if (row['裝機位置'] !== undefined) newRow.location = row['裝機位置'];
+                    if (row['副機數量'] !== undefined) newRow.sub_count = row['副機數量'];
+                    if (row['連絡電話'] !== undefined) newRow.contact_tel = row['連絡電話'];
+                    
+                    if (Object.keys(newRow).length === 0) return row;
+                }
+                return newRow;
             });
             
             const { error } = await supabaseClient.from(table).insert(records);
