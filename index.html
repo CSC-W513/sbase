@@ -576,19 +576,55 @@
         searchImages();
     }
 
+    // Helper to fetch ALL records with pagination loop
+    async function fetchAllRecords(tableName) {
+        let allData = [];
+        let from = 0;
+        const limit = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+            const { data, error } = await supabaseClient
+                .from(tableName)
+                .select('*')
+                .range(from, from + limit - 1)
+                .order('extension');
+            
+            if (error) {
+                console.error(`Error fetching ${tableName}:`, error);
+                throw error;
+            }
+
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                from += limit;
+                if (data.length < limit) hasMore = false;
+            } else {
+                hasMore = false;
+            }
+        }
+        return allData;
+    }
+
     // ================= PHONES =================
     // phoneData is declared globally above
     async function searchPhones() {
         if (!supabaseClient) return;
         const query = document.getElementById('phoneSearch').value;
-        let dbQuery = supabaseClient.from('phones').select('*').order('extension');
-        
-        const { data, error } = await dbQuery;
-        if (error) { console.error('Error loading phones', error); return; }
-        
-        phoneData = data;
-        const filtered = query ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) : data;
-        renderPhoneTable(filtered);
+        const container = document.getElementById('phonesTableContainer');
+        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
+
+        try {
+            // Fetch ALL data first, then filter locally
+            // This ensures we get everything regardless of API limits
+            const data = await fetchAllRecords('phones');
+            
+            phoneData = data;
+            const filtered = query ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) : data;
+            renderPhoneTable(filtered);
+        } catch (error) {
+            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗</div>';
+        }
     }
 
     function renderPhoneTable(data) {
