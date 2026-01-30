@@ -186,22 +186,20 @@
         return false;
     };
 
-    let supabase = null;
+    let supabaseClient = null;
 
     // Initialize Supabase safely
     try {
         if (window.supabase) {
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         } else {
             console.error('Supabase library not loaded (window.supabase is undefined)');
-            // Fallback: Check if we can proceed anyway or show intrusive alert
-            // But let's assume it might load later or is network issue
         }
     } catch (e) {
         console.error('Supabase initialization failed:', e);
     }
 
-    if (!supabase) {
+    if (!supabaseClient) {
         setTimeout(() => {
              const errDiv = document.getElementById('globalError');
              if (errDiv) {
@@ -217,7 +215,7 @@
 
     // Initialize
     window.addEventListener('DOMContentLoaded', () => {
-        if (supabase) {
+        if (supabaseClient) {
             loadInitialData();
         }
         
@@ -249,7 +247,7 @@
 
     // Login Logic
     async function handleLogin() {
-        if (!supabase) { alert('系統未連線，無法登入'); return; }
+        if (!supabaseClient) { alert('系統未連線，無法登入'); return; }
         const user = document.getElementById('username').value;
         const pass = document.getElementById('password').value;
         
@@ -261,7 +259,7 @@
         const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
         try {
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('users')
                 .select('*')
                 .eq('username', user)
@@ -340,7 +338,7 @@
     // ================= IMAGES =================
     async function searchImages() {
         const query = document.getElementById('imgSearch').value;
-        let dbQuery = supabase.from('images').select('*');
+        let dbQuery = supabaseClient.from('images').select('*');
         
         if (query) {
             dbQuery = dbQuery.ilike('filename', `%${query}%`);
@@ -376,7 +374,7 @@
             const filePath = `${groupFolder}/${safeName}`;
             
             // 1. Upload to Storage
-            const { error: uploadError } = await supabase.storage
+            const { error: uploadError } = await supabaseClient.storage
                 .from('images')
                 .upload(filePath, file);
                 
@@ -387,7 +385,7 @@
             }
 
             // 2. Insert Metadata
-            const { error: dbError } = await supabase.from('images').insert({
+            const { error: dbError } = await supabaseClient.from('images').insert({
                 filename: file.name, // Display name
                 file_path: filePath,
                 group_id: currentUser.group_id,
@@ -404,9 +402,9 @@
     // ================= PHONES =================
     // phoneData is declared globally above
     async function searchPhones() {
-        if (!supabase) return;
+        if (!supabaseClient) return;
         const query = document.getElementById('phoneSearch').value;
-        let dbQuery = supabase.from('phones').select('*').order('extension');
+        let dbQuery = supabaseClient.from('phones').select('*').order('extension');
         
         const { data, error } = await dbQuery;
         if (error) { console.error('Error loading phones', error); return; }
@@ -447,13 +445,13 @@
 
     async function updatePhone(id, field, value) {
         if (!currentUser) return;
-        await supabase.from('phones').update({ [field]: value }).eq('id', id);
+        await supabaseClient.from('phones').update({ [field]: value }).eq('id', id);
     }
     
     async function deletePhone(id) {
         if (!currentUser) return;
         if(confirm('確定刪除?')) {
-            await supabase.from('phones').delete().eq('id', id);
+            await supabaseClient.from('phones').delete().eq('id', id);
             searchPhones();
         }
     }
@@ -461,9 +459,9 @@
     // ================= DISPATCH =================
     // dispatchData is declared globally above
     async function searchDispatch() {
-        if (!supabase) return;
+        if (!supabaseClient) return;
         const query = document.getElementById('dispatchSearch').value;
-        let dbQuery = supabase.from('dispatch_phones').select('*').order('extension');
+        let dbQuery = supabaseClient.from('dispatch_phones').select('*').order('extension');
         
         const { data, error } = await dbQuery;
         if (error) { console.error('Error loading dispatch', error); return; }
@@ -500,13 +498,13 @@
 
     async function updateDispatch(id, field, value) {
         if (!currentUser) return;
-        await supabase.from('dispatch_phones').update({ [field]: value }).eq('id', id);
+        await supabaseClient.from('dispatch_phones').update({ [field]: value }).eq('id', id);
     }
     
     async function deleteDispatch(id) {
         if (!currentUser) return;
         if(confirm('確定刪除?')) {
-            await supabase.from('dispatch_phones').delete().eq('id', id);
+            await supabaseClient.from('dispatch_phones').delete().eq('id', id);
             searchDispatch();
         }
     }
@@ -538,7 +536,7 @@
                 return row; 
             });
             
-            const { error } = await supabase.from(table).insert(records);
+            const { error } = await supabaseClient.from(table).insert(records);
             if (error) alert('Import failed: ' + error.message);
             else {
                 alert('Import successful');
