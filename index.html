@@ -833,6 +833,57 @@
         return allData;
     }
 
+    // Helper for Batch Search
+    async function batchSearch(tableName, query, renderFunction, setDataGlobal, containerId) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
+
+        let from = 0;
+        const limit = 1000;
+        let foundAny = false;
+
+        try {
+            while (true) {
+                // Update loading message
+                if (from > 0) {
+                     container.innerHTML = `<div style="text-align:center; padding: 20px;">正在搜尋第 ${from} 筆後的資料...</div>`;
+                }
+
+                const { data, error } = await supabaseClient
+                    .from(tableName)
+                    .select('*')
+                    .range(from, from + limit - 1)
+                    .order('extension');
+                
+                if (error) throw error;
+                
+                if (!data || data.length === 0) break;
+
+                const filtered = query 
+                    ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) 
+                    : data;
+
+                if (filtered.length > 0) {
+                    setDataGlobal(data); // Store the batch that contains results
+                    renderFunction(filtered, query);
+                    foundAny = true;
+                    break; // STOP loading more
+                }
+
+                if (data.length < limit) break; // End of DB
+                from += limit;
+            }
+
+            if (!foundAny) {
+                setDataGlobal([]);
+                container.innerHTML = '<div style="text-align:center; color: #888; padding: 20px;">查無資料</div>';
+            }
+        } catch (error) {
+            console.error('Batch search error:', error);
+            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗: ' + error.message + '</div>';
+        }
+    }
+
     // ================= PHONES =================
     // phoneData is declared globally above
     async function searchPhones() {
@@ -840,20 +891,7 @@
         const query = document.getElementById('phoneSearch').value;
         if (query) sendTelegramNotification(`<b>查詢通知 (分機)</b>\n關鍵字: ${query}\n用戶: ${currentUser ? currentUser.username : '訪客'}`);
 
-        const container = document.getElementById('phonesTableContainer');
-        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
-
-        try {
-            // Fetch ALL data first, then filter locally
-            // This ensures we get everything regardless of API limits
-            const data = await fetchAllRecords('phones');
-            
-            phoneData = data;
-            const filtered = query ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) : data;
-            renderPhoneTable(filtered, query);
-        } catch (error) {
-            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗</div>';
-        }
+        await batchSearch('phones', query, renderPhoneTable, (data) => { phoneData = data; }, 'phonesTableContainer');
     }
 
     function renderPhoneTable(data, query = '') {
@@ -1086,15 +1124,7 @@
         const query = document.getElementById('dispatchSearch').value;
         if (query) sendTelegramNotification(`<b>查詢通知 (調度)</b>\n關鍵字: ${query}\n用戶: ${currentUser ? currentUser.username : '訪客'}`);
 
-        // Increase limit to 10000 to ensure all records are fetched
-        let dbQuery = supabaseClient.from('dispatch_phones').select('*').limit(10000).order('extension');
-        
-        const { data, error } = await dbQuery;
-        if (error) { console.error('Error loading dispatch', error); return; }
-        
-        dispatchData = data;
-        const filtered = query ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) : data;
-        renderDispatchTable(filtered, query);
+        await batchSearch('dispatch_phones', query, renderDispatchTable, (data) => { dispatchData = data; }, 'dispatchTableContainer');
     }
 
     function renderDispatchTable(data, query = '') {
