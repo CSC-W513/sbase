@@ -20,6 +20,8 @@
     function showModRecordPage() {
         document.getElementById('mainApp').classList.add('hidden');
         document.getElementById('modRecordPage').classList.remove('hidden');
+        // Push state to history for Back button support
+        window.history.pushState({ page: 'modRecord' }, '', '#modRecord');
         // Load initial times
         updateLastModTimes();
     }
@@ -27,7 +29,78 @@
     function hideModRecordPage() {
         document.getElementById('modRecordPage').classList.add('hidden');
         document.getElementById('mainApp').classList.remove('hidden');
+        // Clean URL if needed, but usually popstate handles it. 
+        // If called manually (btn click), we should go back to avoid forward history trap
+        if (window.location.hash === '#modRecord') {
+            window.history.back();
+        }
     }
+
+    // Handle Back Button with Double Press Exit Logic
+    let lastBackPressTime = 0;
+    
+    // Initialize History State for Main Page Exit Trap
+    window.addEventListener('load', () => {
+        // Replace current state to be 'home' to ensure we have a state object
+        window.history.replaceState({ page: 'home' }, '', window.location.pathname);
+        // Push a guard state so we can intercept the first back press
+        window.history.pushState({ page: 'home_guard' }, '', window.location.pathname);
+    });
+
+    window.addEventListener('popstate', function(event) {
+        const modPage = document.getElementById('modRecordPage');
+        
+        // Scenario 1: Back from Mod Page
+        // If Mod Page is visible, we hide it and return to Main App.
+        if (!modPage.classList.contains('hidden')) {
+             modPage.classList.add('hidden');
+             document.getElementById('mainApp').classList.remove('hidden');
+             // We don't need to do anything else as the history pop already happened.
+             return;
+        }
+        
+        // Scenario 2: Back at Main Page (Exit Logic)
+        // If we are here, Mod Page is hidden.
+        
+        const currentTime = new Date().getTime();
+        const timeDiff = currentTime - lastBackPressTime;
+        
+        if (timeDiff < 2000) {
+            // Second press within 2 seconds -> Confirm Exit
+            if (confirm('確定要離開系統嗎？')) {
+                // User confirmed. Go back one more time to exit or close window
+                // Note: window.close() only works if script opened window. 
+                // history.back() might exit PWA or browser tab depending on history stack.
+                window.history.back(); 
+            } else {
+                // Cancelled. Restore the guard state.
+                window.history.pushState({ page: 'home_guard' }, '', window.location.pathname);
+            }
+        } else {
+            // First press
+            lastBackPressTime = currentTime;
+            
+            // Show toast/hint
+            const toast = document.createElement('div');
+            toast.innerText = '再按一次離開';
+            toast.style.position = 'fixed';
+            toast.style.bottom = '50px';
+            toast.style.left = '50%';
+            toast.style.transform = 'translateX(-50%)';
+            toast.style.background = 'rgba(0,0,0,0.7)';
+            toast.style.color = 'white';
+            toast.style.padding = '10px 20px';
+            toast.style.borderRadius = '20px';
+            toast.style.zIndex = '9999';
+            toast.style.pointerEvents = 'none';
+            document.body.appendChild(toast);
+            
+            setTimeout(() => toast.remove(), 2000);
+            
+            // Restore guard state so next press triggers popstate again
+            window.history.pushState({ page: 'home_guard' }, '', window.location.pathname);
+        }
+    });
 
     async function updateLastModTimes() {
         const tables = ['phones', 'dispatch_phones', 'images'];
@@ -90,13 +163,19 @@
                 deleteBtn = `<button onclick="deleteModLog('${log.id}', '${table}')" style="background:#d32f2f; color:white; border:none; padding:2px 6px; border-radius:3px; font-size:0.8em; margin-left:10px; cursor:pointer; min-width: 20px;">X</button>`;
             }
 
+            // Correctly display Admin name for existing records if username matches specific ID or if role was admin at time (but we only have modified_by string)
+            let modifierDisplay = log.modified_by || 'Unknown';
+            if (modifierDisplay === '179747' || modifierDisplay === 'admin') {
+                modifierDisplay = '管理者';
+            }
+
             // Collapsible Details using <details>
             html += `
             <details class="mod-log-card">
                 <summary class="mod-log-header" style="cursor: pointer;">
                     <div style="display:flex; gap:12px; align-items:center;">
                         <span style="color: ${actionColor}; font-weight:bold; min-width: 40px;">${actionText}</span>
-                        <span style="font-weight:bold; color:#333;">${log.modified_by || 'Unknown'}</span>
+                        <span style="font-weight:bold; color:#333;">${modifierDisplay}</span>
                         <span style="color: #666; font-size: 0.9em;">(點擊展開)</span>
                         ${deleteBtn}
                     </div>
