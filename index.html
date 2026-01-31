@@ -833,65 +833,46 @@
         return allData;
     }
 
-    // Helper for Batch Search
-    async function batchSearch(tableName, query, renderFunction, setDataGlobal, containerId) {
-        const container = document.getElementById(containerId);
-        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
-
-        let from = 0;
-        const limit = 1000;
-        let foundAny = false;
-
-        try {
-            while (true) {
-                // Update loading message
-                if (from > 0) {
-                     container.innerHTML = `<div style="text-align:center; padding: 20px;">正在搜尋第 ${from} 筆後的資料...</div>`;
-                }
-
-                const { data, error } = await supabaseClient
-                    .from(tableName)
-                    .select('*')
-                    .range(from, from + limit - 1)
-                    .order('extension');
-                
-                if (error) throw error;
-                
-                if (!data || data.length === 0) break;
-
-                const filtered = query 
-                    ? data.filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase())) 
-                    : data;
-
-                if (filtered.length > 0) {
-                    setDataGlobal(data); // Store the batch that contains results
-                    renderFunction(filtered, query);
-                    foundAny = true;
-                    break; // STOP loading more
-                }
-
-                if (data.length < limit) break; // End of DB
-                from += limit;
-            }
-
-            if (!foundAny) {
-                setDataGlobal([]);
-                container.innerHTML = '<div style="text-align:center; color: #888; padding: 20px;">查無資料</div>';
-            }
-        } catch (error) {
-            console.error('Batch search error:', error);
-            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗: ' + error.message + '</div>';
-        }
+    // Helper to generate OR filter string
+    function buildOrFilter(query, columns) {
+        return columns.map(col => `${col}.ilike.%${query}%`).join(',');
     }
 
     // ================= PHONES =================
     // phoneData is declared globally above
     async function searchPhones() {
         if (!supabaseClient) return;
-        const query = document.getElementById('phoneSearch').value;
+        const query = document.getElementById('phoneSearch').value.trim();
         if (query) sendTelegramNotification(`<b>查詢通知 (分機)</b>\n關鍵字: ${query}\n用戶: ${currentUser ? currentUser.username : '訪客'}`);
 
-        await batchSearch('phones', query, renderPhoneTable, (data) => { phoneData = data; }, 'phonesTableContainer');
+        const container = document.getElementById('phonesTableContainer');
+        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
+
+        try {
+            let dbQuery = supabaseClient.from('phones').select('*').limit(1000).order('extension');
+            
+            if (query) {
+                // Use correct DB column names
+                // Note: 'UG50_port' in UI corresponds to 'g450_port' in DB based on schema
+                const columns = [
+                    'extension', 'type', 'lens', 'mdf_port', 
+                    'remote_mc_id', 'g450_port', 'line_group_id', 
+                    'unit', 'location', 'did_number', 'note'
+                ];
+                dbQuery = dbQuery.or(buildOrFilter(query, columns));
+            }
+
+            const { data, error } = await dbQuery;
+            
+            if (error) throw error;
+            
+            phoneData = data;
+            renderPhoneTable(data, query);
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗: ' + error.message + '</div>';
+        }
     }
 
     function renderPhoneTable(data, query = '') {
@@ -1121,10 +1102,34 @@
     // dispatchData is declared globally above
     async function searchDispatch() {
         if (!supabaseClient) return;
-        const query = document.getElementById('dispatchSearch').value;
+        const query = document.getElementById('dispatchSearch').value.trim();
         if (query) sendTelegramNotification(`<b>查詢通知 (調度)</b>\n關鍵字: ${query}\n用戶: ${currentUser ? currentUser.username : '訪客'}`);
 
-        await batchSearch('dispatch_phones', query, renderDispatchTable, (data) => { dispatchData = data; }, 'dispatchTableContainer');
+        const container = document.getElementById('dispatchTableContainer');
+        container.innerHTML = '<div style="text-align:center; padding: 20px;">載入中...</div>';
+
+        try {
+            let dbQuery = supabaseClient.from('dispatch_phones').select('*').limit(1000).order('extension');
+            
+            if (query) {
+                const columns = [
+                    'extension', 'c_terminal', 'lens', 'line_group_room', 
+                    'line_group_site', 'unit', 'location', 'sub_count', 'contact_tel'
+                ];
+                dbQuery = dbQuery.or(buildOrFilter(query, columns));
+            }
+
+            const { data, error } = await dbQuery;
+            
+            if (error) throw error;
+            
+            dispatchData = data;
+            renderDispatchTable(data, query);
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            container.innerHTML = '<div style="color:red; text-align:center;">載入失敗: ' + error.message + '</div>';
+        }
     }
 
     function renderDispatchTable(data, query = '') {
