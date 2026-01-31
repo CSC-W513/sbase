@@ -1140,6 +1140,45 @@
             updates[key] = value;
         });
         
+        // Detect changes for notification
+        let changedDetails = [];
+        let extension = updates['extension'] || ''; // Default, will try to find below
+        
+        if (originalRowData[id]) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = originalRowData[id];
+            
+            const originalValues = {};
+            tempDiv.querySelectorAll('.info-value[data-key]').forEach(div => {
+                originalValues[div.dataset.key] = div.innerText.trim();
+            });
+            
+            // If extension was not in updates (e.g. read-only?), get from original
+            if (!extension && originalValues['extension']) {
+                extension = originalValues['extension'];
+            }
+            
+            // Compare
+            for (const key in updates) {
+                let newVal = updates[key];
+                let oldVal = originalValues[key] || '';
+                
+                // Normalize "無資料" or "-" to empty string for comparison
+                const normNew = (newVal === '無資料' || newVal === '-') ? '' : newVal;
+                const normOld = (oldVal === '無資料' || oldVal === '-') ? '' : oldVal;
+                
+                if (normNew !== normOld) {
+                    // Find label
+                    const labelSpan = card.querySelector(`[data-key-container="${key}"] .info-label`);
+                    const label = labelSpan ? labelSpan.innerText.replace(' :', '').trim() : key;
+                    changedDetails.push(`${label}: ${oldVal} -> ${newVal}`);
+                }
+            }
+        } else {
+             // Fallback if original data missing
+             changedDetails.push('無法比對原始資料 (Original data missing)');
+        }
+
         const originalBtnText = btn.innerText;
         btn.innerText = '儲存中...';
         btn.disabled = true;
@@ -1157,7 +1196,17 @@
             btn.disabled = false;
         } else {
             // Send Notification
-            sendTelegramNotification(`<b>資料修改通知</b>\n類別: ${table}\nID: ${id}\n用戶: ${currentUser.username}`);
+            const time = new Date().toLocaleString();
+            const changeLog = changedDetails.length > 0 ? changedDetails.join('\n') : '無明顯變更';
+            
+            sendTelegramNotification(
+`<b>資料修改通知</b>
+修改帳號: ${currentUser.username}
+修改分機: ${extension}
+時間: ${time}
+修改欄位:
+${changeLog}`
+            );
             
             // Success - refresh row state (turn off edit)
             values.forEach(div => {
@@ -1422,6 +1471,23 @@
             let data;
             try {
                 data = await fetchAllRecords(tableName);
+                
+                // Sort by extension length (ascending) then by value (numeric)
+                // User request: 4 digits first, then 5, then 7, etc. without mixing.
+                if (data && data.length > 0) {
+                    data.sort((a, b) => {
+                        const extA = String(a.extension || '').trim();
+                        const extB = String(b.extension || '').trim();
+                        
+                        // 1. Sort by length
+                        if (extA.length !== extB.length) {
+                            return extA.length - extB.length;
+                        }
+                        
+                        // 2. Sort by value (numeric aware)
+                        return extA.localeCompare(extB, undefined, { numeric: true, sensitivity: 'base' });
+                    });
+                }
             } catch (error) {
                 alert('匯出失敗: ' + error.message);
                 console.error(error);
