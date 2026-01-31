@@ -425,6 +425,7 @@
                 <button onclick="exportToExcel('dispatch')" style="background: #20B2AA;">匯出 Excel</button>
                 <button onclick="document.getElementById('dispatchImport').click()" style="background: #DAA520;">匯入 Excel</button>
                 <input type="file" id="dispatchImport" accept=".xlsx" style="display: none;" onchange="importExcel('dispatch', this)">
+                <button id="btn-clearDispatch" onclick="deleteAllDispatch()" style="background: #CD5C5C; margin-left: 10px;" class="hidden">清空資料</button>
             </div>
         </div>
         <div id="dispatchTableContainer"></div>
@@ -580,7 +581,7 @@
         });
 
         // Admin Only Controls
-        const adminControls = ['btn-clearPhones'];
+        const adminControls = ['btn-clearPhones', 'btn-clearDispatch'];
         adminControls.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
@@ -1109,6 +1110,41 @@
         }
     }
 
+    async function deleteAllDispatch() {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('權限不足');
+            return;
+        }
+        
+        // Double confirmation for safety
+        if (!confirm('警告：確定要清空所有調度電話資料嗎？此動作無法復原！')) return;
+        if (!confirm('再次確認：真的要刪除全部資料？')) return;
+        
+        const btn = event.target;
+        const originalText = btn.innerText;
+        btn.innerText = '刪除中...';
+        btn.disabled = true;
+
+        try {
+            // Delete all records where id is not null
+            const { error, count } = await supabaseClient
+                .from('dispatch_phones')
+                .delete()
+                .not('id', 'is', null);
+            
+            if (error) throw error;
+            
+            alert('已清空所有調度電話資料');
+            searchDispatch(); // Refresh view
+        } catch (e) {
+            console.error('Delete all error:', e);
+            alert('清空失敗: ' + e.message);
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+
     // ================= EXCEL IMPORT/EXPORT =================
     async function exportToExcel(type) {
         if (!supabaseClient) return;
@@ -1183,9 +1219,37 @@
         }
     }
 
-    function importExcel(type, input) {
+    // Helper to fetch only ID and Extension for mapping
+    async function fetchExistingKeys(tableName) {
+        let allData = [];
+        let from = 0;
+        const limit = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+            const { data, error } = await supabaseClient
+                .from(tableName)
+                .select('id, extension') // Fetch only necessary fields
+                .range(from, from + limit - 1);
+            
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                from += limit;
+                if (data.length < limit) hasMore = false;
+            } else {
+                hasMore = false;
+            }
+        }
+        return allData;
+    }
+
+    async function importExcel(type, input) {
         if (!currentUser) return;
         const file = input.files[0];
+        if (!file) return;
+
         const reader = new FileReader();
         reader.onload = async function(e) {
             const data = new Uint8Array(e.target.result);
@@ -1194,9 +1258,32 @@
             
             const table = type === 'phones' ? 'phones' : 'dispatch_phones';
             
-            // Map Excel columns to DB columns
+            const btn = event.target; // Note: event.target might be the input, not the button if triggered by change
+            // Actually input onchange doesn't have a button reference easily unless we find it.
+            // But we can show a loading alert or use global UI blocking if needed.
+            // For now, standard alert flow is fine.
+
+            // 1. Fetch existing data to handle duplicates manually
+            // (Since we don't have a unique constraint on 'extension' in DB)
+            let existingRecords = [];
+            try {
+                existingRecords = await fetchExistingKeys(table);
+            } catch (err) {
+                console.error('Error fetching existing keys:', err);
+                alert('匯入前檢查失敗: ' + err.message);
+                return;
+            }
+            
+            // Map extension -> id
+            const extensionMap = new Map();
+            existingRecords.forEach(r => {
+                if (r.extension) extensionMap.set(String(r.extension).trim(), r.id);
+            });
+
+            // 2. Map Excel columns to DB columns
             const records = jsonData.map(row => {
                 const newRow = {};
+                
                 if (type === 'phones') {
                     // Map Chinese headers to DB columns
                     if (row['號碼'] !== undefined) newRow.extension = row['號碼'];
@@ -1228,15 +1315,60 @@
                     
                     if (Object.keys(newRow).length === 0) return row;
                 }
+                
+                // 3. Check for existing ID to perform Update instead of Insert
+                if (newRow.extension) {
+                    const extKey = String(newRow.extension).trim();
+                    if (extensionMap.has(extKey)) {
+                        newRow.id = extensionMap.get(extKey);
+                    }
+                }
+                
                 return newRow;
             });
             
-            const { error } = await supabaseClient.from(table).upsert(records, { onConflict: 'extension' });
-            if (error) alert('Import failed: ' + error.message);
-            else {
-                alert('Import successful');
-                if (type === 'phones') searchPhones(); else searchDispatch();
+            // Filter out empty rows
+            const validRecords = records.filter(r => Object.keys(r).length > 0);
+
+            if (validRecords.length === 0) {
+                alert('無有效資料可匯入');
+                return;
             }
+
+            // 4. Perform Upsert (Batched to avoid payload limits)
+            const BATCH_SIZE = 1000;
+            let successCount = 0;
+            let errorCount = 0;
+            
+            // Show processing message
+            const originalTitle = document.title;
+            document.title = '匯入中...';
+
+            for (let i = 0; i < validRecords.length; i += BATCH_SIZE) {
+                const batch = validRecords.slice(i, i + BATCH_SIZE);
+                // upsert without onConflict works if Primary Key (id) is present
+                const { error } = await supabaseClient.from(table).upsert(batch); 
+                
+                if (error) {
+                    console.error('Import batch error:', error);
+                    errorCount += batch.length;
+                } else {
+                    successCount += batch.length;
+                }
+            }
+            
+            document.title = originalTitle;
+
+            if (errorCount > 0) {
+                alert(`匯入完成，但有 ${errorCount} 筆失敗 (成功: ${successCount} 筆)`);
+            } else {
+                alert(`匯入成功 (共 ${successCount} 筆)`);
+            }
+            
+            // Reset input to allow re-uploading same file if needed
+            input.value = '';
+
+            if (type === 'phones') searchPhones(); else searchDispatch();
         };
         reader.readAsArrayBuffer(file);
     }
