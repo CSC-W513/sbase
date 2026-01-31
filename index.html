@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
@@ -59,7 +59,7 @@
             .select('*')
             .eq('table_name', table)
             .order('modified_at', { ascending: false })
-            .limit(50); // Limit to last 50 records
+            .limit(200); // Limit to last 200 records
             
         if (error) {
             listDiv.innerHTML = `<p style="color: red; text-align: center;">載入失敗: ${error.message}</p>`;
@@ -71,50 +71,148 @@
             return;
         }
 
-        let html = '';
+        // Add Export Button
+        let html = `
+        <div style="text-align: right; margin-bottom: 10px;">
+            <button onclick="exportModLogs('${table}')" style="background: #009688; padding: 5px 15px; font-size: 0.9em; border-radius: 4px; color: white; border: none; cursor: pointer;">匯出此紀錄</button>
+        </div>`;
+
         data.forEach(log => {
             const time = new Date(log.modified_at).toLocaleString();
             let actionColor = '#555';
-            if (log.action === 'UPDATE') actionColor = '#2196F3'; // Blue
-            if (log.action === 'DELETE') actionColor = '#F44336'; // Red
-            if (log.action === 'INSERT') actionColor = '#4CAF50'; // Green
+            let actionText = log.action;
+            if (log.action === 'UPDATE') { actionColor = '#2196F3'; actionText = '修改'; }
+            if (log.action === 'DELETE') { actionColor = '#F44336'; actionText = '刪除'; }
+            if (log.action === 'INSERT') { actionColor = '#4CAF50'; actionText = '新增'; }
 
+            // Collapsible Details using <details>
             html += `
-            <div class="mod-log-card">
-                <div class="mod-log-header">
-                    <span style="color: ${actionColor};">${log.action}</span>
-                    <span class="mod-log-time">${time}</span>
-                </div>
-                <div class="mod-log-content">
-                    <div><b>修改人:</b> ${log.modified_by || 'Unknown'}</div>
-                    <div style="margin-top: 5px;"><b>內容:</b></div>
-                    <div style="background: #f9f9f9; padding: 8px; border-radius: 4px; border: 1px solid #eee; margin-top: 4px;">
-                        ${log.changed_fields || log.content || '無詳細內容'}
+            <details class="mod-log-card" style="margin-bottom: 8px; padding: 8px 12px; border: 1px solid #eee;">
+                <summary class="mod-log-header" style="cursor: pointer; margin-bottom: 0; border-bottom: none; display: flex; justify-content: space-between; align-items: center; outline: none; list-style: none;">
+                    <div style="display:flex; gap:12px; align-items:center;">
+                        <span style="color: ${actionColor}; font-weight:bold; min-width: 40px;">${actionText}</span>
+                        <span style="font-weight:bold; color:#333;">${log.modified_by || 'Unknown'}</span>
+                        <span style="color: #666; font-size: 0.9em;">(點擊展開)</span>
                     </div>
+                    <span class="mod-log-time" style="font-size: 0.85em;">${time}</span>
+                </summary>
+                <div class="mod-log-content" style="margin-top: 8px; border-top: 1px solid #f0f0f0; padding-top: 8px;">
+                    <div style="background: #fcfcfc; padding: 10px; border-radius: 4px; border: 1px solid #eee; white-space: pre-wrap; font-size: 0.95em; line-height: 1.4; color: #444;">${log.changed_fields || log.content || '無詳細內容'}</div>
                 </div>
-            </div>`;
+            </details>`;
         });
         
         listDiv.innerHTML = html;
     }
 
+    async function exportModLogs(table) {
+        const btn = event.target;
+        const originalText = btn.innerText;
+        btn.innerText = '匯出中...';
+        btn.disabled = true;
+
+        try {
+            const { data, error } = await supabaseClient
+                .from('modification_logs')
+                .select('*')
+                .eq('table_name', table)
+                .order('modified_at', { ascending: false })
+                .limit(1000);
+                
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                alert('無資料可匯出');
+                return;
+            }
+            
+            const exportData = data.map(log => ({
+                '動作': log.action,
+                '修改人': log.modified_by,
+                '時間': new Date(log.modified_at).toLocaleString(),
+                '內容': log.changed_fields || log.content,
+                '紀錄ID': log.record_id
+            }));
+            
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Modification Logs");
+            
+            const label = table === 'phones' ? '分機' : (table === 'dispatch_phones' ? '調度' : 'PA天車');
+            XLSX.writeFile(wb, `${label}_修改紀錄.xlsx`);
+            
+        } catch (e) {
+            console.error('Export logs error:', e);
+            alert('匯出失敗');
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+
     async function logModification(tableName, action, recordId, changes, oldData, newData) {
         if (!currentUser) return;
         
-        const { error } = await supabaseClient
-            .from('modification_logs')
-            .insert({
-                table_name: tableName,
-                record_id: recordId,
-                action: action,
-                changed_fields: changes,
-                old_data: oldData,
-                new_data: newData,
-                modified_by: currentUser.username
-            });
+        try {
+            // 1. Insert Log
+            const { error } = await supabaseClient
+                .from('modification_logs')
+                .insert({
+                    table_name: tableName,
+                    record_id: String(recordId), // Ensure string
+                    action: action,
+                    changed_fields: changes,
+                    old_data: oldData,
+                    new_data: newData,
+                    modified_by: currentUser.username
+                });
+                
+            if (error) {
+                console.error('Failed to log modification:', error);
+            }
+
+            // 2. Cleanup Policy: Keep 200 records OR 100 days
+            // We'll perform a simple cleanup: delete logs older than 100 days
+            // And delete logs beyond 200 count for this table
             
-        if (error) {
-            console.error('Failed to log modification:', error);
+            // Cleanup > 100 days
+            const dateLimit = new Date();
+            dateLimit.setDate(dateLimit.getDate() - 100);
+            
+            // Run cleanup asynchronously (don't await to avoid blocking UI)
+            (async () => {
+                try {
+                    // Delete older than 100 days
+                    await supabaseClient
+                        .from('modification_logs')
+                        .delete()
+                        .eq('table_name', tableName)
+                        .lt('modified_at', dateLimit.toISOString());
+
+                    // Check count and delete excess (Keep latest 200)
+                    // Strategy: Get the 200th record's timestamp
+                    const { data: nthRecord } = await supabaseClient
+                        .from('modification_logs')
+                        .select('modified_at')
+                        .eq('table_name', tableName)
+                        .order('modified_at', { ascending: false })
+                        .range(199, 199)
+                        .single();
+                        
+                    if (nthRecord) {
+                        // Delete anything older than the 200th record
+                        await supabaseClient
+                            .from('modification_logs')
+                            .delete()
+                            .eq('table_name', tableName)
+                            .lt('modified_at', nthRecord.modified_at);
+                    }
+                } catch (cleanupErr) {
+                    console.error('Cleanup logs error:', cleanupErr);
+                }
+            })();
+
+        } catch (e) {
+            console.error('logModification exception:', e);
         }
     }
 </script>
