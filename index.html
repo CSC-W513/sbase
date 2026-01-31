@@ -275,18 +275,15 @@
 
         /* Clear Button Style */
         .btn-clear {
-            background: #757575 !important;
+            background: #d32f2f !important; /* Red background */
             color: white;
-            padding: 0 10px !important;
-            font-size: 1.2rem;
-            line-height: 1;
-            margin: 0 5px !important;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 8px 16px !important;
+            font-size: 14px;
+            margin: 4px !important;
+            border-radius: 6px;
+            /* Remove circular styles */
+            width: auto;
+            height: auto;
         }
 
         @media (max-width: 768px) {
@@ -299,8 +296,8 @@
             }
             
             /* Smaller Header Fonts */
-            h1 { font-size: 1rem !important; margin-bottom: 5px; }
-            #loginBtn, #userControls button { font-size: 0.8rem !important; padding: 5px 10px !important; }
+            h1 { font-size: 0.9rem !important; margin-bottom: 5px; }
+            #loginBtn, #userControls button { font-size: 0.75rem !important; padding: 4px 8px !important; }
             
             /* Reduce instruction text size */
             h2, h3, .toolbar input, .toolbar button, .image-grid, table { 
@@ -338,13 +335,7 @@
                 white-space: nowrap;
             }
             
-            /* Adjust clear button for mobile */
-            .btn-clear {
-                width: 28px;
-                height: 28px;
-                padding: 0 !important;
-                margin: 0 2px !important;
-            }
+            /* Remove circular clear button overrides for mobile */
 
             .toolbar > div:not(.search-group) {
                 width: 100%;
@@ -433,8 +424,8 @@
         <div class="toolbar">
             <div class="search-group">
                 <input type="text" id="imgSearch" placeholder="搜尋圖片..." style="width: 300px;">
-                <button class="btn-clear" onclick="clearInput('imgSearch')">×</button>
                 <button onclick="searchImages()">搜尋</button>
+                <button class="btn-clear" onclick="clearInput('imgSearch')">清除</button>
             </div>
             
             <!-- Auth Only Controls -->
@@ -451,8 +442,8 @@
         <div class="toolbar">
             <div class="search-group">
                 <input type="text" id="phoneSearch" placeholder="搜尋分機..." style="width: 300px;">
-                <button class="btn-clear" onclick="clearInput('phoneSearch')">×</button>
                 <button onclick="searchPhones()">搜尋</button>
+                <button class="btn-clear" onclick="clearInput('phoneSearch')">清除</button>
             </div>
             
             <!-- Auth Only Controls -->
@@ -471,8 +462,8 @@
         <div class="toolbar">
             <div class="search-group">
                 <input type="text" id="dispatchSearch" placeholder="搜尋調度電話..." style="width: 300px;">
-                <button class="btn-clear" onclick="clearInput('dispatchSearch')">×</button>
                 <button onclick="searchDispatch()">搜尋</button>
+                <button class="btn-clear" onclick="clearInput('dispatchSearch')">清除</button>
             </div>
             
             <!-- Auth Only Controls -->
@@ -572,6 +563,15 @@
     function clearInput(id) {
         document.getElementById(id).value = '';
         document.getElementById(id).focus();
+        
+        // Clear results based on input ID and restore initial message
+        if (id === 'imgSearch') {
+            document.getElementById('imageGrid').innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #888; padding: 20px;">請輸入關鍵字搜尋圖片</div>';
+        } else if (id === 'phoneSearch') {
+            document.getElementById('phonesTableContainer').innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">請輸入關鍵字搜尋分機</div>';
+        } else if (id === 'dispatchSearch') {
+            document.getElementById('dispatchTableContainer').innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">請輸入關鍵字搜尋調度電話</div>';
+        }
     }
 
     // Login Logic
