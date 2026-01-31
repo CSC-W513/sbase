@@ -273,6 +273,22 @@
         ::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
         ::-webkit-scrollbar-thumb:hover { background: #777; }
 
+        /* Clear Button Style */
+        .btn-clear {
+            background: #757575 !important;
+            color: white;
+            padding: 0 10px !important;
+            font-size: 1.2rem;
+            line-height: 1;
+            margin: 0 5px !important;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         @media (max-width: 768px) {
             .container {
                 margin: 0;
@@ -282,37 +298,61 @@
                 border: none;
             }
             
-            h1 { font-size: 1.2rem; margin-bottom: 10px; }
+            /* Smaller Header Fonts */
+            h1 { font-size: 1rem !important; margin-bottom: 5px; }
+            #loginBtn, #userControls button { font-size: 0.8rem !important; padding: 5px 10px !important; }
+            
             /* Reduce instruction text size */
             h2, h3, .toolbar input, .toolbar button, .image-grid, table { 
                 font-size: 0.9rem !important; 
             }
             
+            /* Row Layout for Toolbar */
             .toolbar {
                 flex-direction: column;
-                align-items: flex-start; /* Left align instead of stretch */
-                gap: 5px;
+                align-items: stretch;
+                gap: 8px;
                 padding: 10px;
             }
 
+            /* Search Group Container */
+            .search-group {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                gap: 5px;
+            }
+
             .toolbar input {
-                width: 100% !important;
-                max-width: none !important;
-                margin-bottom: 5px;
+                width: auto !important;
+                flex: 1; /* Take available space */
+                margin-bottom: 0 !important;
+                min-width: 0; /* Allow shrinking */
             }
 
             .toolbar button {
-                width: auto; /* Do not fill width */
-                margin: 3px 2px;
-                padding: 6px 12px; /* Smaller touch target but still accessible */
+                width: auto;
+                margin: 0 !important;
+                padding: 6px 12px;
                 font-size: 0.85rem;
+                white-space: nowrap;
+            }
+            
+            /* Adjust clear button for mobile */
+            .btn-clear {
+                width: 28px;
+                height: 28px;
+                padding: 0 !important;
+                margin: 0 2px !important;
             }
 
-            .toolbar > div {
+            .toolbar > div:not(.search-group) {
                 width: 100%;
                 display: flex;
-                flex-direction: row; /* Keep buttons in row if possible */
+                flex-direction: row;
                 flex-wrap: wrap;
+                justify-content: flex-end; /* Align auth controls to right or distribute */
+                gap: 5px;
             }
 
             #phonesTableContainer, #dispatchTableContainer {
@@ -391,8 +431,11 @@
     <!-- Images Section -->
     <div id="imagesSection" class="section">
         <div class="toolbar">
-            <input type="text" id="imgSearch" placeholder="搜尋圖片 (模糊搜尋)..." style="width: 300px;">
-            <button onclick="searchImages()">搜尋</button>
+            <div class="search-group">
+                <input type="text" id="imgSearch" placeholder="搜尋圖片..." style="width: 300px;">
+                <button class="btn-clear" onclick="clearInput('imgSearch')">×</button>
+                <button onclick="searchImages()">搜尋</button>
+            </div>
             
             <!-- Auth Only Controls -->
             <div id="imgAuthControls" class="hidden">
@@ -406,8 +449,11 @@
     <!-- Phones Section -->
     <div id="phonesSection" class="section hidden">
         <div class="toolbar">
-            <input type="text" id="phoneSearch" placeholder="搜尋分機..." style="width: 300px;">
-            <button onclick="searchPhones()">搜尋</button>
+            <div class="search-group">
+                <input type="text" id="phoneSearch" placeholder="搜尋分機..." style="width: 300px;">
+                <button class="btn-clear" onclick="clearInput('phoneSearch')">×</button>
+                <button onclick="searchPhones()">搜尋</button>
+            </div>
             
             <!-- Auth Only Controls -->
             <div id="phoneAuthControls" class="hidden">
@@ -423,8 +469,11 @@
     <!-- Dispatch Section -->
     <div id="dispatchSection" class="section hidden">
         <div class="toolbar">
-            <input type="text" id="dispatchSearch" placeholder="搜尋調度電話..." style="width: 300px;">
-            <button onclick="searchDispatch()">搜尋</button>
+            <div class="search-group">
+                <input type="text" id="dispatchSearch" placeholder="搜尋調度電話..." style="width: 300px;">
+                <button class="btn-clear" onclick="clearInput('dispatchSearch')">×</button>
+                <button onclick="searchDispatch()">搜尋</button>
+            </div>
             
             <!-- Auth Only Controls -->
             <div id="dispatchAuthControls" class="hidden">
@@ -518,6 +567,11 @@
 
     function hideLoginModal() {
         document.getElementById('loginOverlay').classList.add('hidden');
+    }
+
+    function clearInput(id) {
+        document.getElementById(id).value = '';
+        document.getElementById(id).focus();
     }
 
     // Login Logic
