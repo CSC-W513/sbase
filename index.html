@@ -26,6 +26,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <!-- html2canvas for Screenshot -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <!-- JSZip (for PPTX) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- jQuery (Required for PPTXjs) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- PPTXjs (Custom/CDN for PPTX parsing) -->
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/filereader.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/nv.d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/pptxjs.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/css/pptxjs.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/css/nv.d3.min.css">
     <style>
         :root {
             --bg-primary: #121212;
@@ -544,7 +560,7 @@
             <!-- Auth Only Controls -->
             <div id="imgAuthControls" class="hidden">
                 <button onclick="document.getElementById('imgUploadInput').click()" style="background: #228B22;">+ 上傳圖片</button>
-                <input type="file" id="imgUploadInput" multiple accept="image/*,.doc,.docx,.xls,.xlsx" style="display: none;" onchange="handleImageUpload(this)">
+                <input type="file" id="imgUploadInput" multiple accept="image/*,.docx,.xls,.xlsx,.pdf,.pptx" style="display: none;" onchange="handleImageUpload(this)">
             </div>
         </div>
         <div id="imageGrid" class="image-grid"></div>
@@ -1012,7 +1028,10 @@
                         fileToUpload = blobToFile(blob, fileNameBase + '.png');
                         originalName = fileNameBase + '.png'; // Update name for DB
                     }
-                } else if (['doc', 'docx'].includes(ext)) {
+                } else if (ext === 'doc') {
+                    alert(`不支援 .doc 格式: ${originalName}\n請將檔案另存為 .docx 格式後再上傳。`);
+                    continue;
+                } else if (ext === 'docx') {
                     // Handle Word
                     const arrayBuffer = await file.arrayBuffer();
                     const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
@@ -1031,10 +1050,108 @@
                         fileToUpload = blobToFile(blob, fileNameBase + '.png');
                         originalName = fileNameBase + '.png'; // Update name for DB
                     }
+                } else if (ext === 'pdf') {
+                    // Handle PDF
+                    const arrayBuffer = await file.arrayBuffer();
+                    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                    const pdf = await loadingTask.promise;
+                    
+                    // Render first page only
+                    const page = await pdf.getPage(1);
+                    const scale = 2; // Better quality
+                    const viewport = page.getViewport({ scale: scale });
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    
+                    await page.render({
+                        canvasContext: context,
+                        viewport: viewport
+                    }).promise;
+                    
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    if (blob) {
+                        fileToUpload = blobToFile(blob, fileNameBase + '.png');
+                        originalName = fileNameBase + '.png';
+                    }
+                } else if (ext === 'pptx') {
+                    // Handle PPTX using PPTXjs
+                    const container = document.createElement('div');
+                    container.id = 'pptx-container';
+                    container.style.position = 'absolute';
+                    container.style.left = '-9999px';
+                    container.style.top = '0';
+                    container.style.width = '1000px'; // Set a reasonable width
+                    container.style.height = '800px';
+                    document.body.appendChild(container);
+
+                    try {
+                        // Create a file input hack because PPTXjs expects file url or input
+                        // But we can try to process it using processPptx helper if available or use blob url
+                        const blobUrl = URL.createObjectURL(file);
+                        
+                        await new Promise((resolve, reject) => {
+                            $("#pptx-container").pptxToHtml({
+                                pptxFileUrl: blobUrl,
+                                slideMode: false,
+                                keyBoardShortCut: false,
+                                mediaProcess: true, 
+                                jsZipV2: false,
+                                slideModeConfig: {  //on slide mode (slideMode: true)
+                                    first: 1, 
+                                    nav: false,
+                                    navTxtColor: "white", 
+                                    showPlayPauseBtn: false,
+                                    keyBoardShortCut: false, 
+                                    showSlideNum: false, 
+                                    showTotalSlideNum: false, 
+                                    autoSlide: false, 
+                                    randomAutoSlide: false, 
+                                    loop: false,  
+                                    background: false, 
+                                    transition: "default",
+                                    transitionTime: 1
+                                }
+                            });
+                            
+                            // PPTXjs doesn't have a clear callback for "done rendering" easily exposed in documentation
+                            // We wait a bit or check for content
+                            setTimeout(resolve, 3000); // Give it 3 seconds to render first slide
+                        });
+
+                        // Capture first slide
+                        // The structure usually is .slide-wrapper .slide
+                        const slide = container.querySelector('.slide');
+                        if (slide) {
+                             const canvas = await html2canvas(slide, {
+                                backgroundColor: '#ffffff',
+                                scale: 2
+                            });
+                            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                            if (blob) {
+                                fileToUpload = blobToFile(blob, fileNameBase + '.png');
+                                originalName = fileNameBase + '.png';
+                            }
+                        } else {
+                            throw new Error("無法解析 PPTX 內容");
+                        }
+                    } finally {
+                        if (container.parentNode) document.body.removeChild(container);
+                    }
+                } else if (ext === 'ppt') {
+                     alert(`不支援 .ppt 格式: ${originalName}\n請將檔案另存為 .pptx 或 .pdf 格式後再上傳。`);
+                     continue;
                 }
             } catch (err) {
                 console.error(`Error converting ${file.name}:`, err);
-                alert(`轉換失敗: ${file.name} - ${err.message}`);
+                // Translate common error messages
+                let errorMsg = err.message;
+                if (errorMsg.includes("Can't find end of central directory")) {
+                    errorMsg = "檔案格式錯誤 (可能是 .doc 格式但副檔名為 .docx，或檔案損毀)";
+                }
+                alert(`轉換失敗: ${file.name}\n${errorMsg}`);
                 continue;
             }
 
