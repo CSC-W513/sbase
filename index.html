@@ -853,10 +853,10 @@
             
             if (query) {
                 // Use correct DB column names
-                // Note: 'UG50_port' in UI corresponds to 'g450_port' in DB based on schema
+                // Note: 'UG50_port' is the actual column name in DB (verified via check_schema.js)
                 const columns = [
                     'extension', 'type', 'lens', 'mdf_port', 
-                    'remote_mc_id', 'g450_port', 'line_group_id', 
+                    'remote_mc_id', 'UG50_port', 'line_group_id', 
                     'unit', 'location', 'did_number', 'note'
                 ];
                 dbQuery = dbQuery.or(buildOrFilter(query, columns));
