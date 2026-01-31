@@ -380,6 +380,114 @@
                 height: 120px;
             }
         }
+
+        /* Card Layout for Search Results */
+        .result-card {
+            background: #fff;
+            color: #333;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            /* Adjust width to fit content but max out at screen width */
+            display: inline-block;
+            width: 100%; /* Default to full width for consistency */
+            max-width: 100%;
+            vertical-align: top;
+        }
+
+        /* Responsive adjustment: Allow card to shrink if needed, or stay full width */
+        @media (min-width: 769px) {
+            .result-card {
+                 width: fit-content;
+                 min-width: 300px;
+                 max-width: 100%;
+                 display: block; /* Stack them */
+            }
+        }
+        
+        /* Mobile: full width is usually best, but user asked for "fit width" */
+        /* If we use fit-content on mobile, and data is short, it looks weird if left aligned. */
+        /* Let's try to follow user instruction strictly: "不無條件填滿" */
+        
+        .result-card {
+            width: fit-content;
+            min-width: 300px; /* Prevent too narrow */
+            max-width: 100%;
+            display: block; /* Keep them stacked */
+        }
+        
+        .card-header {
+            background: #3f51b5; /* Matches accent color */
+            color: #fff;
+            padding: 10px 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .card-body {
+            padding: 0;
+        }
+        
+        .info-row {
+            display: flex;
+            border-bottom: 1px solid #eee;
+            padding: 12px 15px;
+            align-items: center;
+        }
+        
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            width: 120px; /* Fixed width for labels */
+            font-weight: bold;
+            color: #555;
+            flex-shrink: 0;
+            font-size: 1rem;
+        }
+        
+        .info-value {
+            flex-grow: 1;
+            color: #222;
+            font-size: 1rem;
+            word-break: break-word;
+        }
+
+        .info-value[contenteditable="true"] {
+            border: 1px dashed #999;
+            padding: 4px;
+            background: #fffde7;
+            min-height: 20px;
+        }
+        
+        .hidden-empty-row {
+            display: none !important;
+        }
+        
+        .highlight-bg {
+            background-color: #ffeb3b; /* Yellow highlight */
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .card-actions {
+            padding: 10px 15px;
+            background: #f5f5f5;
+            border-top: 1px solid #eee;
+            text-align: right;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        /* Dark mode adjustments for cards if needed, but screenshot shows white cards */
+        /* Keeping white cards as requested/shown in screenshot */
+
     </style>
 </head>
 <body>
@@ -896,64 +1004,83 @@
 
         // Define columns
         const columns = [
-            { key: 'extension', label: '分機' },
-            { key: 'type', label: '數位' },
+            { key: 'extension', label: '分機號碼', highlight: true },
+            { key: 'unit', label: '使用單位' },
+            { key: 'line_group_id', label: '線組編號' },
+            { key: 'UG50_port', label: 'UG50' },
+            { key: 'type', label: '分機種類' },
+            { key: 'sub_count', label: '副機數量' },
+            { key: 'did_number', label: 'DID號碼' },
+            { key: 'location', label: '裝機位置' },
+            { key: 'move_record', label: '拆遷紀錄' },
+            { key: 'note', label: '備註' },
             { key: 'lens', label: 'LENS' },
             { key: 'mdf_port', label: 'MDF' },
-            { key: 'remote_mc_id', label: 'MC-ID' },
-            { key: 'UG50_port', label: 'UG50' },
-            { key: 'line_group_id', label: '線組' },
-            { key: 'unit', label: '單位' },
-            { key: 'location', label: '位置' },
-            { key: 'did_number', label: 'DID' },
-            { key: 'note', label: '備註' }
+            { key: 'remote_mc_id', label: 'MC-ID' }
         ];
 
-        const getActiveColumns = (rows) => {
-            return columns.filter(col => 
-                rows.some(row => {
-                    const val = row[col.key] ? String(row[col.key]).trim() : '';
-                    return val !== '' && val !== '-';
-                })
-            );
-        };
-
-        const generateTable = (rows) => {
+        const generateCards = (rows, startIndex = 0) => {
             if (rows.length === 0) return '';
-            const activeColumns = getActiveColumns(rows);
             
-            let html = `<table><thead><tr>`;
-            activeColumns.forEach(col => {
-                html += `<th>${col.label}</th>`;
-            });
-            if (isEditable) html += `<th>操作</th>`;
-            html += `</tr></thead><tbody>`;
-            
-            rows.forEach(row => {
-                html += `<tr data-id="${row.id}">`;
-                activeColumns.forEach(col => {
-                    html += `<td data-key="${col.key}">${row[col.key] || ''}</td>`;
+            let html = '';
+            rows.forEach((row, index) => {
+                const globalIndex = startIndex + index + 1;
+                html += `<div class="result-card" data-id="${row.id}">
+                    <div class="card-header">
+                        <span>搜尋結果 #${globalIndex}</span>
+                    </div>
+                    <div class="card-body">`;
+                
+                columns.forEach(col => {
+                    const val = row[col.key] || '';
+                    // Logic: Always render if value exists.
+                    // If empty:
+                    //   - If !isEditable: Don't render (display: none via class or just omit) -> User said "Don't show"
+                    //   - If isEditable: Render but hidden, so enableEdit can show it.
+                    
+                    const isEmpty = !val;
+                    
+                    if (isEmpty && !isEditable) return; // Skip completely for viewers
+                    
+                    let rowClass = 'info-row';
+                    if (isEmpty && isEditable) {
+                        rowClass += ' hidden-empty-row'; // Hide initially for editors too
+                    }
+                    
+                    const isHighlight = col.highlight;
+                    const valueClass = isHighlight ? 'info-value highlight-bg' : 'info-value';
+                    const style = isHighlight ? 'display:inline-block; width:auto; flex-grow:0;' : '';
+                    
+                    html += `
+                    <div class="${rowClass}" data-key-container="${col.key}">
+                        <span class="info-label">${col.label} :</span>
+                        <span class="${valueClass}" data-key="${col.key}" style="${style}">${val}</span>
+                    </div>`;
                 });
+                
+                html += `</div>`; // End card-body
+                
                 if (isEditable) {
-                    html += `<td>
+                    html += `
+                    <div class="card-actions">
                         <button onclick="enableEdit(this, 'phones')">修改</button>
-                        <button onclick="deletePhone('${row.id}')">刪除</button>
-                    </td>`;
+                        <button onclick="deletePhone('${row.id}')" style="background:#d32f2f;">刪除</button>
+                    </div>`;
                 }
-                html += `</tr>`;
+                
+                html += `</div>`; // End result-card
             });
-            html += '</tbody></table>';
             return html;
         };
 
-        let html = generateTable(displayData);
+        let html = generateCards(displayData, 0);
 
         if (hiddenData.length > 0) {
             html += `<div style="margin-top: 10px; text-align: center;">
                 <button id="btn-morePhones" onclick="toggleMore('morePhones', ${hiddenData.length})">顯示其餘 ${hiddenData.length} 筆結果</button>
             </div>`;
             html += `<div id="morePhones" class="hidden">`;
-            html += generateTable(hiddenData);
+            html += generateCards(hiddenData, displayData.length);
             html += `</div>`;
         }
         
@@ -963,35 +1090,38 @@
     // ================= EDIT / SAVE / CANCEL HELPERS =================
     let originalRowData = {};
 
-    function enableEdit(btn, type) {
-        const tr = btn.closest('tr');
-        const rowId = tr.dataset.id;
+        function enableEdit(btn, type) {
+        const card = btn.closest('.result-card');
+        const rowId = card.dataset.id;
         
         // Store original data
-        originalRowData[rowId] = tr.innerHTML;
+        originalRowData[rowId] = card.innerHTML;
+
+        // Reveal hidden empty rows for editing
+        const hiddenRows = card.querySelectorAll('.hidden-empty-row');
+        hiddenRows.forEach(row => {
+            row.classList.remove('hidden-empty-row');
+        });
 
         // Make cells editable
-        const cells = tr.querySelectorAll('td[data-key]');
-        cells.forEach(td => {
-            td.contentEditable = true;
-            td.classList.add('editing-cell');
+        const values = card.querySelectorAll('.info-value[data-key]');
+        values.forEach(div => {
+            div.contentEditable = true;
+            if (div.innerText === '無資料') div.innerText = '';
         });
 
         // Change buttons
-        const actionTd = btn.closest('td');
-        // We assume delete function names based on type
-        const deleteFunc = type === 'phones' ? `deletePhone('${rowId}')` : `deleteDispatch('${rowId}')`;
-        
-        actionTd.innerHTML = `
-            <button class="btn-save" onclick="saveEdit(this, '${rowId}', '${type}')">確認</button>
-            <button class="btn-cancel" onclick="cancelEdit(this, '${rowId}')">取消</button>
+        const actionDiv = card.querySelector('.card-actions');
+        actionDiv.innerHTML = `
+            <button class="btn-save" onclick="saveEdit(this, '${rowId}', '${type}')" style="background:#4caf50;">確認</button>
+            <button class="btn-cancel" onclick="cancelEdit(this, '${rowId}')" style="background:#757575;">取消</button>
         `;
     }
 
     function cancelEdit(btn, rowId) {
-        const tr = btn.closest('tr');
+        const card = btn.closest('.result-card');
         if (originalRowData[rowId]) {
-            tr.innerHTML = originalRowData[rowId];
+            card.innerHTML = originalRowData[rowId];
             delete originalRowData[rowId];
         }
     }
@@ -999,13 +1129,13 @@
     async function saveEdit(btn, id, table) {
         if (!confirm('確定要修改嗎？')) return;
         
-        const tr = btn.closest('tr');
-        const cells = tr.querySelectorAll('td[data-key]');
+        const card = btn.closest('.result-card');
+        const values = card.querySelectorAll('.info-value[data-key]');
         const updates = {};
         
-        cells.forEach(td => {
-            const key = td.dataset.key;
-            const value = td.innerText;
+        values.forEach(div => {
+            const key = div.dataset.key;
+            const value = div.innerText.trim();
             updates[key] = value;
         });
         
@@ -1029,22 +1159,18 @@
             sendTelegramNotification(`<b>資料修改通知</b>\n類別: ${table}\nID: ${id}\n用戶: ${currentUser.username}`);
             
             // Success - refresh row state (turn off edit)
-            cells.forEach(td => {
-                td.contentEditable = false;
-                td.classList.remove('editing-cell');
+            values.forEach(div => {
+                div.contentEditable = false;
             });
             
-            const actionTd = btn.closest('td');
+            const actionDiv = card.querySelector('.card-actions');
             const deleteFunc = table === 'phones' ? `deletePhone('${id}')` : `deleteDispatch('${id}')`;
-            actionTd.innerHTML = `
+            actionDiv.innerHTML = `
                 <button onclick="enableEdit(this, '${table}')">修改</button> 
-                <button onclick="${deleteFunc}">刪除</button>
+                <button onclick="${deleteFunc}" style="background:#d32f2f;">刪除</button>
             `;
             
             delete originalRowData[id];
-            
-            // Optionally refresh data in background to keep local state in sync
-            // but for now UI update is sufficient
         }
     }
 
@@ -1138,7 +1264,7 @@
         
         const isEditable = !!currentUser;
 
-        // Split data if query exists and exact match found
+        // Split data logic
         let displayData = data;
         let hiddenData = [];
         
@@ -1152,64 +1278,80 @@
         }
 
         // Define columns
-        // ['分機號碼', 'C端子位置', 'LENS', '線組編號(機房)', '線組編號(現場)', '使用單位', '裝機位置', '副機數量', '連絡電話']
         const columns = [
-            { key: 'extension', label: '分機' },
-            { key: 'c_terminal', label: 'C端子' },
-            { key: 'lens', label: 'LENS' },
-            { key: 'line_group_room', label: '線組(機房)' },
-            { key: 'line_group_site', label: '線組(現場)' },
-            { key: 'unit', label: '單位' },
-            { key: 'location', label: '位置' },
+            { key: 'extension', label: '分機號碼', highlight: true },
+            { key: 'unit', label: '使用單位' },
+            { key: 'c_terminal', label: 'C端子位置' },
+            { key: 'line_group_room', label: '線組編號(機房)' },
+            { key: 'line_group_site', label: '線組編號(現場)' },
+            { key: 'location', label: '裝機位置' },
             { key: 'sub_count', label: '副機數量' },
-            { key: 'contact_tel', label: '連絡電話' }
+            { key: 'contact_tel', label: '連絡電話' },
+            { key: 'lens', label: 'LENS' }
         ];
 
-        const getActiveColumns = (rows) => {
-            return columns.filter(col => 
-                rows.some(row => {
-                    const val = row[col.key] ? String(row[col.key]).trim() : '';
-                    return val !== '' && val !== '-';
-                })
-            );
-        };
-
-        const generateTable = (rows) => {
+        const generateCards = (rows, startIndex = 0) => {
             if (rows.length === 0) return '';
-            const activeColumns = getActiveColumns(rows);
-
-            let html = `<table><thead><tr>`;
-            activeColumns.forEach(col => {
-                html += `<th>${col.label}</th>`;
-            });
-            if (isEditable) html += `<th>操作</th>`;
-            html += `</tr></thead><tbody>`;
             
-            rows.forEach(row => {
-                html += `<tr data-id="${row.id}">`;
-                activeColumns.forEach(col => {
-                    html += `<td data-key="${col.key}">${row[col.key] || ''}</td>`;
+            let html = '';
+            rows.forEach((row, index) => {
+                const globalIndex = startIndex + index + 1;
+                html += `<div class="result-card" data-id="${row.id}">
+                    <div class="card-header">
+                        <span>搜尋結果 #${globalIndex}</span>
+                    </div>
+                    <div class="card-body">`;
+                
+                columns.forEach(col => {
+                    const val = row[col.key] || '';
+                    // Logic: Always render if value exists.
+                    // If empty:
+                    //   - If !isEditable: Don't render (display: none via class or just omit)
+                    //   - If isEditable: Render but hidden, so enableEdit can show it.
+                    
+                    const isEmpty = !val;
+                    
+                    if (isEmpty && !isEditable) return; // Skip completely for viewers
+                    
+                    let rowClass = 'info-row';
+                    if (isEmpty && isEditable) {
+                        rowClass += ' hidden-empty-row'; // Hide initially for editors too
+                    }
+                    
+                    const isHighlight = col.highlight;
+                    const valueClass = isHighlight ? 'info-value highlight-bg' : 'info-value';
+                    const style = isHighlight ? 'display:inline-block; width:auto; flex-grow:0;' : '';
+                    
+                    html += `
+                    <div class="${rowClass}" data-key-container="${col.key}">
+                        <span class="info-label">${col.label} :</span>
+                        <span class="${valueClass}" data-key="${col.key}" style="${style}">${val}</span>
+                    </div>`;
                 });
+                
+                html += `</div>`; // End card-body
+                
                 if (isEditable) {
-                    html += `<td>
+                    html += `
+                    <div class="card-actions">
                         <button onclick="enableEdit(this, 'dispatch')">修改</button>
-                        <button onclick="deleteDispatch('${row.id}')">刪除</button>
-                    </td>`;
+                        <button onclick="deleteDispatch('${row.id}')" style="background:#d32f2f;">刪除</button>
+                    </div>`;
                 }
-                html += `</tr>`;
+                
+                html += `</div>`; // End result-card
             });
-            html += '</tbody></table>';
             return html;
         };
 
-        let html = generateTable(displayData);
+        let html = generateCards(displayData, 0);
 
         if (hiddenData.length > 0) {
             html += `<div style="margin-top: 10px; text-align: center;">
                 <button id="btn-moreDispatch" onclick="toggleMore('moreDispatch', ${hiddenData.length})">顯示其餘 ${hiddenData.length} 筆結果</button>
             </div>`;
             html += `<div id="moreDispatch" class="hidden">`;
-            html += generateTable(hiddenData);
+            html += generateCards(hiddenData, displayData.length);
             html += `</div>`;
         }
         container.innerHTML = html;
