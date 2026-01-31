@@ -32,14 +32,14 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
     <!-- JSZip (for PPTX) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
     <!-- jQuery (Required for PPTXjs) -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
     <!-- PPTXjs (Custom/CDN for PPTX parsing) -->
-    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/filereader.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/nv.d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/pptxjs.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/filereader.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/d3.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/nv.d3.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/js/pptxjs.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/css/pptxjs.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/meshesha/PPTXjs@latest/css/nv.d3.min.css">
     <style>
@@ -1089,36 +1089,45 @@
 
                     try {
                         // Create a file input hack because PPTXjs expects file url or input
-                        // But we can try to process it using processPptx helper if available or use blob url
-                        const blobUrl = URL.createObjectURL(file);
+                        // Use Data URL instead of Blob URL to avoid potential extension issues
+                        const reader = new FileReader();
+                        const dataUrl = await new Promise((resolve, reject) => {
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.onerror = (e) => reject(e);
+                            reader.readAsDataURL(file);
+                        });
                         
                         await new Promise((resolve, reject) => {
-                            $("#pptx-container").pptxToHtml({
-                                pptxFileUrl: blobUrl,
-                                slideMode: false,
-                                keyBoardShortCut: false,
-                                mediaProcess: true, 
-                                jsZipV2: false,
-                                slideModeConfig: {  //on slide mode (slideMode: true)
-                                    first: 1, 
-                                    nav: false,
-                                    navTxtColor: "white", 
-                                    showPlayPauseBtn: false,
-                                    keyBoardShortCut: false, 
-                                    showSlideNum: false, 
-                                    showTotalSlideNum: false, 
-                                    autoSlide: false, 
-                                    randomAutoSlide: false, 
-                                    loop: false,  
-                                    background: false, 
-                                    transition: "default",
-                                    transitionTime: 1
-                                }
-                            });
-                            
-                            // PPTXjs doesn't have a clear callback for "done rendering" easily exposed in documentation
-                            // We wait a bit or check for content
-                            setTimeout(resolve, 3000); // Give it 3 seconds to render first slide
+                            try {
+                                $("#pptx-container").pptxToHtml({
+                                    pptxFileUrl: dataUrl,
+                                    slideMode: false,
+                                    keyBoardShortCut: false,
+                                    mediaProcess: true, 
+                                    jsZipV2: false,
+                                    slideModeConfig: {  //on slide mode (slideMode: true)
+                                        first: 1, 
+                                        nav: false,
+                                        navTxtColor: "white", 
+                                        showPlayPauseBtn: false,
+                                        keyBoardShortCut: false, 
+                                        showSlideNum: false, 
+                                        showTotalSlideNum: false, 
+                                        autoSlide: false, 
+                                        randomAutoSlide: false, 
+                                        loop: false,  
+                                        background: false, 
+                                        transition: "default",
+                                        transitionTime: 1
+                                    }
+                                });
+                                
+                                // PPTXjs doesn't have a clear callback for "done rendering" easily exposed in documentation
+                                // We wait a bit or check for content
+                                setTimeout(resolve, 3000); // Give it 3 seconds to render first slide
+                            } catch (e) {
+                                reject(e);
+                            }
                         });
 
                         // Capture first slide
