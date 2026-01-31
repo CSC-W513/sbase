@@ -408,6 +408,7 @@
                 <button onclick="exportToExcel('phones')" style="background: #20B2AA;">匯出 Excel</button>
                 <button onclick="document.getElementById('phoneImport').click()" style="background: #DAA520;">匯入 Excel</button>
                 <input type="file" id="phoneImport" accept=".xlsx" style="display: none;" onchange="importExcel('phones', this)">
+                <button onclick="deleteAllPhones()" style="background: #CD5C5C; margin-left: 10px;">清空資料</button>
             </div>
         </div>
         <div id="phonesTableContainer"></div>
@@ -950,6 +951,41 @@
         }
     }
 
+    async function deleteAllPhones() {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('權限不足');
+            return;
+        }
+        
+        // Double confirmation for safety
+        if (!confirm('警告：確定要清空所有分機資料嗎？此動作無法復原！')) return;
+        if (!confirm('再次確認：真的要刪除全部資料？')) return;
+        
+        const btn = event.target;
+        const originalText = btn.innerText;
+        btn.innerText = '刪除中...';
+        btn.disabled = true;
+
+        try {
+            // Delete all records where id is not null (effectively all records)
+            const { error, count } = await supabaseClient
+                .from('phones')
+                .delete()
+                .neq('id', 0); // Assuming IDs are non-zero, or use another always-true condition
+            
+            if (error) throw error;
+            
+            alert('已清空所有分機資料');
+            searchPhones(); // Refresh view
+        } catch (e) {
+            console.error('Delete all error:', e);
+            alert('清空失敗: ' + e.message);
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+
     // ================= DISPATCH =================
     // dispatchData is declared globally above
     async function searchDispatch() {
@@ -1184,7 +1220,7 @@
                 return newRow;
             });
             
-            const { error } = await supabaseClient.from(table).insert(records);
+            const { error } = await supabaseClient.from(table).upsert(records, { onConflict: 'extension' });
             if (error) alert('Import failed: ' + error.message);
             else {
                 alert('Import successful');
