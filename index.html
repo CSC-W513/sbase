@@ -394,6 +394,130 @@
             console.error('logModification exception:', e);
         }
     }
+// ================= LIGHTBOX LOGIC =================
+let currentLightboxIndex = 0;
+let currentLightboxImages = [];
+
+function openLightbox(index, images = null) {
+    if (images) {
+        currentLightboxImages = images;
+    } else if (!currentLightboxImages || currentLightboxImages.length === 0) {
+        if (window.currentGalleryImages) {
+            currentLightboxImages = window.currentGalleryImages;
+        } else {
+            return;
+        }
+    }
+    
+    currentLightboxIndex = index;
+    updateLightboxContent();
+    
+    const overlay = document.getElementById('lightbox-overlay');
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; 
+    
+    document.addEventListener('keydown', handleLightboxKeys);
+    
+    const img = document.getElementById('lightbox-img');
+    img.addEventListener('touchstart', handleTouchStart, {passive: false});
+    img.addEventListener('touchmove', handleTouchMove, {passive: false});
+    img.addEventListener('touchend', handleTouchEnd);
+}
+
+function closeLightbox() {
+    const overlay = document.getElementById('lightbox-overlay');
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', handleLightboxKeys);
+    
+    const img = document.getElementById('lightbox-img');
+    img.removeEventListener('touchstart', handleTouchStart);
+    img.removeEventListener('touchmove', handleTouchMove);
+    img.removeEventListener('touchend', handleTouchEnd);
+}
+
+function updateLightboxContent() {
+    if (!currentLightboxImages || currentLightboxImages.length === 0) return;
+    
+    const imgData = currentLightboxImages[currentLightboxIndex];
+    const img = document.getElementById('lightbox-img');
+    const info = document.getElementById('lightbox-info');
+    const counter = document.getElementById('lightbox-counter');
+    
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/images/${imgData.file_path}`;
+    
+    img.src = publicUrl;
+    info.innerText = imgData.filename;
+    counter.innerText = `${currentLightboxIndex + 1} / ${currentLightboxImages.length}`;
+    
+    preloadImage(currentLightboxIndex + 1);
+    preloadImage(currentLightboxIndex - 1);
+}
+
+function preloadImage(index) {
+    if (index >= 0 && index < currentLightboxImages.length) {
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'image';
+        link.href = `${SUPABASE_URL}/storage/v1/object/public/images/${currentLightboxImages[index].file_path}`;
+        document.head.appendChild(link);
+    }
+}
+
+function nextImage(e) {
+    if (e) e.stopPropagation();
+    if (currentLightboxIndex < currentLightboxImages.length - 1) {
+        currentLightboxIndex++;
+        updateLightboxContent();
+    } else {
+        currentLightboxIndex = 0;
+        updateLightboxContent();
+    }
+}
+
+function prevImage(e) {
+    if (e) e.stopPropagation();
+    if (currentLightboxIndex > 0) {
+        currentLightboxIndex--;
+        updateLightboxContent();
+    } else {
+        currentLightboxIndex = currentLightboxImages.length - 1;
+        updateLightboxContent();
+    }
+}
+
+function handleLightboxKeys(e) {
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowRight') nextImage();
+    if (e.key === 'ArrowLeft') prevImage();
+}
+
+let touchStartX = 0;
+let touchEndX = 0;
+
+function handleTouchStart(e) {
+    touchStartX = e.changedTouches[0].screenX;
+}
+
+function handleTouchMove(e) {
+    e.preventDefault(); 
+}
+
+function handleTouchEnd(e) {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+}
+
+function handleSwipe() {
+    const threshold = 50; 
+    if (touchEndX < touchStartX - threshold) {
+        nextImage(); 
+    }
+    if (touchEndX > touchStartX + threshold) {
+        prevImage(); 
+    }
+}
+
 </script>
 
     <!-- Supabase JS -->
@@ -1130,6 +1254,49 @@
             color: #aaa;
             margin-bottom: 2px;
             margin-left: 2px;
+        }
+
+        /* Lightbox Styles */
+        #lightbox-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 10000;
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        #lightbox-container {
+            position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;
+        }
+        #lightbox-img {
+            max-width: 95%; max-height: 85vh; object-fit: contain;
+            user-select: none; transition: transform 0.2s;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .lightbox-nav {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            background: rgba(255,255,255,0.1); color: white; border: none;
+            padding: 15px; font-size: 24px; cursor: pointer; border-radius: 50%;
+            transition: all 0.3s; width: 50px; height: 50px; display: flex; justify-content: center; align-items: center;
+            z-index: 10001;
+        }
+        .lightbox-nav:hover { background: rgba(255,255,255,0.3); transform: translateY(-50%) scale(1.1); }
+        #lightbox-prev { left: 20px; }
+        #lightbox-next { right: 20px; }
+        #lightbox-close {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0,0,0,0.5); border: none; color: white; font-size: 24px; cursor: pointer;
+            width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            z-index: 10002; transition: background 0.3s;
+        }
+        #lightbox-close:hover { background: rgba(200,0,0,0.8); }
+        #lightbox-info {
+            position: absolute; bottom: 20px; left: 0; width: 100%; text-align: center;
+            color: white; font-size: 16px; text-shadow: 1px 1px 2px black;
+            pointer-events: none;
+        }
+        #lightbox-counter {
+            position: absolute; top: 25px; left: 25px;
+            color: rgba(255,255,255,0.7); font-size: 14px;
+            pointer-events: none;
         }
 
     </style>
@@ -1965,6 +2132,9 @@
     }
 
     function renderImages(data) {
+        // Store for Lightbox
+        window.currentGalleryImages = data || [];
+
         const grid = document.getElementById('imageGrid');
         grid.innerHTML = '';
         
@@ -1973,7 +2143,7 @@
             return;
         }
 
-        data.forEach(img => {
+        data.forEach((img, index) => {
             const div = document.createElement('div');
             div.className = 'image-item';
             // Construct Public URL
@@ -2007,7 +2177,7 @@
             }
 
             div.innerHTML = `
-                <img src="${publicUrl}" loading="lazy" onclick="window.open('${publicUrl}')">
+                <img src="${publicUrl}" loading="lazy" onclick="openLightbox(${index})" style="cursor: pointer;">
                 ${nameHtml}
                 ${deleteBtn}
             `;
@@ -2214,6 +2384,20 @@
                             let pageSuffix = pdf.numPages > 1 ? `_p${pageNum}` : '';
                             let finalName = fileNameBase + pageSuffix + '.png';
                             
+                            // Overwrite Logic for PDF pages
+                            const { data: existingPdfPages } = await supabaseClient
+                                .from('images')
+                                .select('id, file_path')
+                                .eq('filename', finalName)
+                                .eq('group_id', currentUser.group_id);
+
+                            if (existingPdfPages && existingPdfPages.length > 0) {
+                                for (const oldFile of existingPdfPages) {
+                                    await supabaseClient.storage.from('images').remove([oldFile.file_path]);
+                                    await supabaseClient.from('images').delete().eq('id', oldFile.id);
+                                }
+                            }
+
                             // Upload immediately for each page
                             const safeName = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}.png`;
                             const groupFolder = `group_${currentUser.group_id}`;
@@ -2259,6 +2443,22 @@
                 }
                 errorFiles.push(`${file.name} (轉換失敗: ${errorMsg})`);
                 continue;
+            }
+
+            // Check for existing file with same name in same group (Overwrite Logic)
+            const { data: existingFiles } = await supabaseClient
+                .from('images')
+                .select('id, file_path')
+                .eq('filename', originalName)
+                .eq('group_id', currentUser.group_id);
+
+            if (existingFiles && existingFiles.length > 0) {
+                for (const oldFile of existingFiles) {
+                    // Delete from Storage
+                    await supabaseClient.storage.from('images').remove([oldFile.file_path]);
+                    // Delete from DB (so we can re-insert with fresh metadata)
+                    await supabaseClient.from('images').delete().eq('id', oldFile.id);
+                }
             }
 
             // Generate Safe Storage Path (ASCII only)
@@ -3418,6 +3618,18 @@
         </div>
         <p id="progressMessage" style="color:#ddd; font-size: 0.9em;"></p>
     </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox-overlay">
+    <button id="lightbox-close" onclick="closeLightbox()">✕</button>
+    <div id="lightbox-counter"></div>
+    <div id="lightbox-container">
+        <button id="lightbox-prev" class="lightbox-nav" onclick="prevImage()">❮</button>
+        <img id="lightbox-img" src="" alt="Preview">
+        <button id="lightbox-next" class="lightbox-nav" onclick="nextImage()">❯</button>
+    </div>
+    <div id="lightbox-info"></div>
 </div>
 
 </body>
