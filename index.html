@@ -2083,7 +2083,40 @@
         if (!currentUser) return;
         if (!input.files.length) return;
         
+        // --- Progress UI Setup ---
+        let progressOverlay = document.getElementById('uploadProgressOverlay');
+        if (!progressOverlay) {
+            progressOverlay = document.createElement('div');
+            progressOverlay.id = 'uploadProgressOverlay';
+            progressOverlay.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.5); z-index: 9999;
+                display: flex; justify-content: center; align-items: center;
+            `;
+            progressOverlay.innerHTML = `
+                <div style="background: white; padding: 20px; border-radius: 8px; width: 300px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <h3 style="margin-top: 0; color: #333;">檔案上傳中...</h3>
+                    <div id="uploadProgressText" style="margin-bottom: 10px; color: #666;">準備中...</div>
+                    <div style="width: 100%; height: 10px; background: #eee; border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
+                        <div id="uploadProgressFill" style="width: 0%; height: 100%; background: #4caf50; transition: width 0.3s;"></div>
+                    </div>
+                    <div id="uploadResult" style="font-size: 0.9em; color: #666; white-space: pre-wrap; max-height: 100px; overflow-y: auto;"></div>
+                </div>
+            `;
+            document.body.appendChild(progressOverlay);
+        }
+        
+        progressOverlay.style.display = 'flex';
+        const progressText = document.getElementById('uploadProgressText');
+        const progressFill = document.getElementById('uploadProgressFill');
+        const progressResult = document.getElementById('uploadResult');
+        
+        progressResult.innerText = '';
+        progressFill.style.width = '0%';
+        
         let uploadedFiles = [];
+        let errorFiles = [];
+        const totalFiles = input.files.length;
 
         // Helper to convert blob to file object for uploading
         const blobToFile = (blob, fileName) => {
@@ -2104,7 +2137,15 @@
             }
         };
 
-        for (const file of input.files) {
+        // Validate UUID helper
+        const isValidUUID = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        const uploaderId = isValidUUID(currentUser.id) ? currentUser.id : null;
+
+        for (let i = 0; i < totalFiles; i++) {
+            const file = input.files[i];
+            progressText.innerText = `正在處理 (${i + 1}/${totalFiles}):\n${file.name}`;
+            progressFill.style.width = `${Math.round(((i) / totalFiles) * 100)}%`;
+
             let fileToUpload = file;
             let originalName = file.name;
             let fileNameBase = originalName.substring(0, originalName.lastIndexOf('.')) || originalName;
@@ -2184,36 +2225,39 @@
                                 
                             if (uploadError) {
                                 console.error(`Failed to upload page ${pageNum}:`, uploadError);
+                                errorFiles.push(`${finalName} (Storage: ${uploadError.message})`);
                             } else {
                                 // Insert Metadata
-                            const { data: newImg, error: uploadDbError } = await supabaseClient.from('images').insert({
-                                filename: finalName,
-                                file_path: filePath,
-                                group_id: currentUser.group_id,
-                                uploaded_by: currentUser.id
-                            }).select().single();
+                                const { data: newImg, error: uploadDbError } = await supabaseClient.from('images').insert({
+                                    filename: finalName,
+                                    file_path: filePath,
+                                    group_id: currentUser.group_id,
+                                    uploaded_by: uploaderId
+                                }).select().single();
 
-                            if (!uploadDbError && newImg) {
-                                uploadedFiles.push(finalName);
-                                // Log Modification
-                                await logModification('images', 'INSERT', newImg.id, `上傳圖片 (PDF轉檔): ${finalName}`, null, newImg);
-                            }
+                                if (uploadDbError) {
+                                    console.error('DB Insert Error (PDF Page):', uploadDbError);
+                                    errorFiles.push(`${finalName} (DB: ${uploadDbError.message})`);
+                                } else {
+                                    uploadedFiles.push(finalName);
+                                    // Log Modification
+                                    await logModification('images', 'INSERT', newImg.id, `上傳圖片 (PDF轉檔): ${finalName}`, null, newImg);
+                                }
                             }
                         }
                     }
                     continue; // Skip the standard upload logic at end of loop since we handled it here
                 } else if (['doc', 'docx', 'ppt', 'pptx'].includes(ext)) {
-                    alert(`不支援 Word/PPT 格式: ${originalName}\n請將檔案另存為 PDF 格式後再上傳。`);
+                    errorFiles.push(`${file.name} (不支援 Word/PPT 格式，請轉 PDF)`);
                     continue;
                 }
             } catch (err) {
                 console.error(`Error converting ${file.name}:`, err);
-                // Translate common error messages
                 let errorMsg = err.message;
                 if (errorMsg.includes("Can't find end of central directory")) {
-                    errorMsg = "檔案格式錯誤 (可能是 .doc 格式但副檔名為 .docx，或檔案損毀)";
+                    errorMsg = "檔案格式錯誤";
                 }
-                alert(`轉換失敗: ${file.name}\n${errorMsg}`);
+                errorFiles.push(`${file.name} (轉換失敗: ${errorMsg})`);
                 continue;
             }
 
@@ -2229,8 +2273,8 @@
                 .upload(filePath, fileToUpload);
                 
             if (uploadError) {
-                alert(`上傳失敗: ${originalName}`);
                 console.error(uploadError);
+                errorFiles.push(`${originalName} (Storage: ${uploadError.message})`);
                 continue;
             }
 
@@ -2239,11 +2283,12 @@
                 filename: originalName, // Display name
                 file_path: filePath,
                 group_id: currentUser.group_id,
-                uploaded_by: currentUser.id
+                uploaded_by: uploaderId
             }).select().single();
             
             if (dbError) {
                 console.error(dbError);
+                errorFiles.push(`${originalName} (DB: ${dbError.message})`);
             } else {
                 uploadedFiles.push(originalName);
                 // Log Modification
@@ -2251,13 +2296,37 @@
             }
         }
         
+        progressFill.style.width = '100%';
+        progressText.innerText = '處理完成';
+        
         if (uploadedFiles.length > 0) {
             const time = new Date().toLocaleString();
             sendTelegramNotification(`<b>圖片上傳通知</b>\n用戶: ${currentUser.username}\n時間: ${time}\n上傳檔案:\n${uploadedFiles.join('\n')}`);
         }
 
-        alert('上傳完成');
-        searchImages();
+        let summary = `成功: ${uploadedFiles.length} 筆`;
+        if (errorFiles.length > 0) {
+            summary += `\n失敗: ${errorFiles.length} 筆`;
+            // Append error details
+            progressResult.innerHTML = `<span style="color:red;">${errorFiles.join('\n')}</span>`;
+        } else {
+             progressResult.style.color = 'green';
+             progressResult.innerText = '全數上傳成功！';
+        }
+
+        // Wait a moment then close
+        setTimeout(() => {
+            progressOverlay.style.display = 'none';
+            if (errorFiles.length > 0) {
+                alert(`上傳作業結束\n\n成功: ${uploadedFiles.length}\n失敗: ${errorFiles.length}\n\n失敗詳情:\n${errorFiles.join('\n')}`);
+            } else {
+                alert('上傳完成');
+            }
+            searchImages();
+            
+            // Reset input so same files can be selected again if needed
+            input.value = ''; 
+        }, 1500);
     }
 
     async function deleteImage(id, filePath, filename) {
