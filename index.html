@@ -329,7 +329,7 @@
     }
 
     async function logModification(tableName, action, recordId, changes, oldData, newData) {
-        if (!currentUser) return;
+        // if (!currentUser) return; // Allow logging for guests (e.g. Search)
         
         try {
             // 1. Insert Log
@@ -342,7 +342,7 @@
                     changed_fields: changes,
                     old_data: oldData,
                     new_data: newData,
-                    modified_by: currentUser.username
+                    modified_by: currentUser ? currentUser.username : '訪客'
                 });
                 
             if (error) {
@@ -2186,7 +2186,7 @@ function handleSwipe() {
         if (error) { console.error('Error loading images', error); return; }
 
         // Log Search
-        if (query && currentUser) {
+        if (query) {
              logModification('search_logs', 'SEARCH', null, `搜尋圖片: ${query}`, null, null).catch(e => console.error('Log search error:', e));
         }
 
@@ -2713,7 +2713,7 @@ function handleSwipe() {
             if (error) throw error;
 
             // Log Search
-            if (query && currentUser) {
+            if (query) {
                  logModification('search_logs', 'SEARCH', null, `搜尋分機: ${query}`, null, null).catch(e => console.error('Log search error:', e));
             }
             
@@ -3114,7 +3114,7 @@ function handleSwipe() {
             if (error) throw error;
 
             // Log Search
-            if (query && currentUser) {
+            if (query) {
                  logModification('search_logs', 'SEARCH', null, `搜尋調度: ${query}`, null, null).catch(e => console.error('Log search error:', e));
             }
             
