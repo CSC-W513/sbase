@@ -3513,14 +3513,17 @@ function handleSwipe() {
                 }
 
                 // 2. Perform Upsert for ALL records
-                // We trust "extension" is the unique key. Upsert with onConflict handles updates/inserts automatically.
+                // Strategy: 
+                // a. Deduplicate Excel data (Last win)
+                // b. Query existing IDs by batch (to avoid reading whole DB)
+                // c. Attach IDs and Upsert (Update by ID or Insert new)
                 
                 let successCount = 0;
                 let errorCount = 0;
                 let lastError = null;
 
                 const executeBatch = async (items) => {
-                    const BATCH_SIZE = 100;
+                    const BATCH_SIZE = 200; // Safe size for URL length in .in() query
                     let localSuccess = 0;
                     let localError = 0;
                     let localLastError = null;
@@ -3530,15 +3533,46 @@ function handleSwipe() {
                         const progress = Math.round(((i + 1) / items.length) * 100);
                         updateProgress(progress, `處理中... (${i + 1}/${items.length})`);
 
-                        // Upsert with conflict resolution on 'extension'
-                        // This handles both INSERT (if new) and UPDATE (if exists)
-                        // Note: Requires 'extension' to be a UNIQUE constraint in DB
+                        // 1. Get extensions in this batch
+                        const extensions = batch.map(r => r.extension);
+
+                        // 2. Fetch existing IDs for these extensions
+                        const { data: existingData, error: fetchError } = await supabaseClient
+                            .from(table)
+                            .select('id, extension')
+                            .in('extension', extensions);
+
+                        if (fetchError) {
+                            console.error('Fetch existing IDs error:', fetchError);
+                            localError += batch.length;
+                            localLastError = fetchError;
+                            continue;
+                        }
+
+                        // 3. Map extension -> ID
+                        const idMap = new Map();
+                        if (existingData) {
+                            existingData.forEach(row => {
+                                idMap.set(String(row.extension).trim(), row.id);
+                            });
+                        }
+
+                        // 4. Attach ID to batch records
+                        const upsertBatch = batch.map(record => {
+                            const ext = String(record.extension).trim();
+                            if (idMap.has(ext)) {
+                                return { ...record, id: idMap.get(ext) };
+                            }
+                            return record; // No ID = Insert
+                        });
+
+                        // 5. Upsert (Update if ID exists, Insert if not)
                         const { error } = await supabaseClient
                             .from(table)
-                            .upsert(batch, { onConflict: 'extension' });
+                            .upsert(upsertBatch);
 
                         if (error) {
-                            console.error(`Batch error:`, error);
+                            console.error(`Batch upsert error:`, error);
                             localError += batch.length;
                             localLastError = error;
                         } else {
@@ -3547,8 +3581,17 @@ function handleSwipe() {
                     }
                     return { localSuccess, localError, localLastError };
                 };
+                
+                // Deduplicate validRecords (Keep last occurrence)
+                const uniqueMap = new Map();
+                validRecords.forEach(r => uniqueMap.set(r.extension, r));
+                const uniqueRecords = Array.from(uniqueMap.values());
+                
+                if (validRecords.length !== uniqueRecords.length) {
+                    console.log(`Removed ${validRecords.length - uniqueRecords.length} duplicates from Excel.`);
+                }
 
-                const result = await executeBatch(validRecords);
+                const result = await executeBatch(uniqueRecords);
                 successCount = result.localSuccess;
                 errorCount = result.localError;
                 if (result.localLastError) lastError = result.localLastError;
