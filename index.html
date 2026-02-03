@@ -3419,31 +3419,7 @@ function handleSwipe() {
         }
     }
 
-    // Helper to fetch only ID and Extension for mapping
-    async function fetchExistingKeys(tableName) {
-        let allData = [];
-        let from = 0;
-        const limit = 1000;
-        let hasMore = true;
 
-        while (hasMore) {
-            const { data, error } = await supabaseClient
-                .from(tableName)
-                .select('id, extension') // Fetch only necessary fields
-                .range(from, from + limit - 1);
-            
-            if (error) throw error;
-
-            if (data && data.length > 0) {
-                allData = allData.concat(data);
-                from += limit;
-                if (data.length < limit) hasMore = false;
-            } else {
-                hasMore = false;
-            }
-        }
-        return allData;
-    }
 
     async function importExcel(type, input) {
         if (!currentUser) return;
@@ -3457,64 +3433,14 @@ function handleSwipe() {
             let validRecords = [];
             const table = type === 'phones' ? 'phones' : 'dispatch_phones';
 
-            // Helper function for batch upsert
-            const runBatchUpsert = async (records) => {
-                const BATCH_SIZE = 1000;
-                let successCount = 0;
-                let errorCount = 0;
-                let lastError = null;
-                
-                updateProgress(50, `開始匯入 ${records.length} 筆資料...`);
-
-                for (let i = 0; i < records.length; i += BATCH_SIZE) {
-                    const batch = records.slice(i, i + BATCH_SIZE);
-                    const progress = 50 + Math.floor((i / records.length) * 40);
-                    updateProgress(progress, `匯入中... (${i + 1}/${records.length})`);
-
-                    // Use standard upsert without specific onConflict constraint
-                    // Rely on 'id' being present for updates (mapped from extensionMap)
-                    const { error } = await supabaseClient.from(table).upsert(batch);  
-                    
-                    if (error) {
-                        console.error('Import batch error:', error);
-                        errorCount += batch.length;
-                        lastError = error;
-                    } else {
-                        successCount += batch.length;
-                    }
-                }
-                return { successCount, errorCount, lastError };
-            };
-
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
                 const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
                 
-                // const table is defined in outer scope
-                
-                // 1. Fetch existing data to handle duplicates manually
-                updateProgress(20, '檢查現有資料...');
-                
-                let existingRecords = [];
-                try {
-                    existingRecords = await fetchExistingKeys(table);
-                } catch (err) {
-                    console.error('Error fetching existing keys:', err);
-                    alert('匯入前檢查失敗: ' + err.message);
-                    hideProgress();
-                    return;
-                }
-                
-                // Map extension -> id (Normalize to string and trim)
-                const extensionMap = new Map();
-                existingRecords.forEach(r => {
-                    if (r.extension) extensionMap.set(String(r.extension).trim(), r.id);
-                });
+                updateProgress(20, '解析資料...');
 
-                updateProgress(40, '解析資料...');
-
-                // 2. Map Excel columns to DB columns
+                // 1. Map Excel columns to DB columns
                 const records = jsonData.map(row => {
                     const newRow = {};
                     
@@ -3547,7 +3473,7 @@ function handleSwipe() {
                             note: ['備註', 'note']
                         },
                         dispatch: {
-                            extension: ['分機號碼', 'extension', 'Extension', '號碼', '分機'],
+                            extension: ['分機號碼', 'extension', 'Extension', '號碼', '分機', '調度台', 'Dispatch'],
                             c_terminal: ['C端子位置', 'c_terminal'],
                             lens: ['LENS', 'lens'],
                             line_group_room: ['線組編號(機房)', 'line_group_room', '機房線組'],
@@ -3573,41 +3499,27 @@ function handleSwipe() {
                     if (newRow.extension !== undefined && newRow.extension !== null) {
                         newRow.extension = String(newRow.extension).trim();
                     }
-
-                    // 3. Check for existing ID to perform Update instead of Insert
-                    if (newRow.extension) {
-                        const extKey = newRow.extension;
-                        if (extensionMap.has(extKey)) {
-                            newRow.id = extensionMap.get(extKey);
-                        }
-                    }
                     
                     return newRow;
                 });
                 
-                // Filter out empty rows
-                validRecords = records.filter(r => Object.keys(r).length > 0);
+                // Filter out empty rows or rows without extension
+                validRecords = records.filter(r => Object.keys(r).length > 0 && r.extension);
 
                 if (validRecords.length === 0) {
-                    alert('無有效資料可匯入');
+                    alert('無有效資料可匯入 (需包含分機號碼/調度台)');
                     hideProgress();
                     return;
                 }
 
-                // Calculate Duplicates (Updates) vs New (Inserts)
-                const recordsToUpdate = validRecords.filter(r => r.id);
-                const recordsToInsert = validRecords.filter(r => !r.id);
+                // 2. Perform Upsert for ALL records
+                // We trust "extension" is the unique key. Upsert with onConflict handles updates/inserts automatically.
                 
-                const duplicateCount = recordsToUpdate.length;
-                const newCount = recordsToInsert.length;
-
-                // 4. Perform Upsert/Insert in Batches
                 let successCount = 0;
                 let errorCount = 0;
                 let lastError = null;
 
-                // Helper for executing batch operations
-                const executeBatch = async (items, isUpdate) => {
+                const executeBatch = async (items) => {
                     const BATCH_SIZE = 100;
                     let localSuccess = 0;
                     let localError = 0;
@@ -3616,24 +3528,19 @@ function handleSwipe() {
                     for (let i = 0; i < items.length; i += BATCH_SIZE) {
                         const batch = items.slice(i, i + BATCH_SIZE);
                         const progress = Math.round(((i + 1) / items.length) * 100);
-                        const actionText = isUpdate ? '更新中' : '新增中';
-                        updateProgress(progress, `${actionText}... (${i + 1}/${items.length})`);
+                        updateProgress(progress, `處理中... (${i + 1}/${items.length})`);
 
-                        let result;
-                        if (isUpdate) {
-                            // For updates, we MUST include ID
-                            result = await supabaseClient.from(table).upsert(batch);
-                        } else {
-                            // For inserts, we MUST NOT include ID (let DB generate it)
-                            // Double check to remove undefined id keys if any exist
-                            const cleanBatch = batch.map(({id, ...rest}) => rest);
-                            result = await supabaseClient.from(table).insert(cleanBatch);
-                        }
+                        // Upsert with conflict resolution on 'extension'
+                        // This handles both INSERT (if new) and UPDATE (if exists)
+                        // Note: Requires 'extension' to be a UNIQUE constraint in DB
+                        const { error } = await supabaseClient
+                            .from(table)
+                            .upsert(batch, { onConflict: 'extension' });
 
-                        if (result.error) {
-                            console.error(`${actionText} batch error:`, result.error);
+                        if (error) {
+                            console.error(`Batch error:`, error);
                             localError += batch.length;
-                            localLastError = result.error;
+                            localLastError = error;
                         } else {
                             localSuccess += batch.length;
                         }
@@ -3641,37 +3548,26 @@ function handleSwipe() {
                     return { localSuccess, localError, localLastError };
                 };
 
-                // Run Updates
-                if (recordsToUpdate.length > 0) {
-                    const updateRes = await executeBatch(recordsToUpdate, true);
-                    successCount += updateRes.localSuccess;
-                    errorCount += updateRes.localError;
-                    if (updateRes.localLastError) lastError = updateRes.localLastError;
-                }
-
-                // Run Inserts
-                if (recordsToInsert.length > 0) {
-                    const insertRes = await executeBatch(recordsToInsert, false);
-                    successCount += insertRes.localSuccess;
-                    errorCount += insertRes.localError;
-                    if (insertRes.localLastError) lastError = insertRes.localLastError;
-                }
+                const result = await executeBatch(validRecords);
+                successCount = result.localSuccess;
+                errorCount = result.localError;
+                if (result.localLastError) lastError = result.localLastError;
                 
                 updateProgress(100, '匯入完成');
-                await new Promise(r => setTimeout(r, 500)); // Show completion briefly
-                hideProgress(); // Ensure hidden before final alert
+                await new Promise(r => setTimeout(r, 500)); 
+                hideProgress();
 
                 const time = new Date().toLocaleString();
                 const label = type === 'phones' ? '分機' : '調度電話';
-                const msg = `<b>資料匯入通知</b>\n用戶: ${currentUser.username}\n時間: ${time}\n類型: ${label}\n成功筆數: ${successCount}\n失敗筆數: ${errorCount}`;
+                const msg = `<b>資料匯入通知</b>\n用戶: ${currentUser.username}\n時間: ${time}\n類型: ${label}\n處理筆數: ${successCount}\n失敗筆數: ${errorCount}`;
                 
                 // Log Import
                 await logModification(table, 'IMPORT', null, `匯入${label}資料: 成功 ${successCount} 筆, 失敗 ${errorCount} 筆`, null, null);
 
                 sendTelegramNotification(msg);
 
-                // Simple alert regardless of errors (as requested, overwrite/update is handled)
-                alert(`匯入完成\n成功: ${successCount} 筆\n新增: ${newCount} 筆\n更新: ${duplicateCount} 筆` + (errorCount > 0 ? `\n失敗: ${errorCount} 筆` : ''));
+                // Simple alert
+                alert(`匯入完成\n總處理: ${successCount} 筆` + (errorCount > 0 ? `\n失敗: ${errorCount} 筆` : ''));
                 
                 // Reset input
                 input.value = '';
