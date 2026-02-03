@@ -3439,9 +3439,54 @@ function handleSwipe() {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
-                const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(sheet);
                 
+                // Get headers to determine which columns are actually present in the file
+                const headerData = XLSX.utils.sheet_to_json(sheet, {header: 1});
+                const fileHeaders = (headerData[0] || []).map(h => String(h).trim().toLowerCase());
+
                 updateProgress(20, '解析資料...');
+
+                const MAPPING = {
+                    phones: {
+                        extension: ['號碼', '分機', 'extension', 'Extension', '分機號碼'],
+                        type: ['數位', 'type', '分機種類'],
+                        lens: ['LENS', 'lens'],
+                        mdf_port: ['機房端子編號', 'mdf_port', 'MDF'],
+                        remote_mc_id: ['遠端機櫃 MC-ID (第幾對線)', 'remote_mc_id', 'MC-ID'],
+                        UG50_port: ['遠端機櫃UG-50編號', 'UG50_port', 'UG50'],
+                        line_group_id: ['線組編號', 'line_group_id'],
+                        unit: ['單位', 'unit', '使用單位'],
+                        location: ['裝機位置', 'location'],
+                        call_class: ['通話等級', 'call_class'],
+                        sub_count: ['副機數量', 'sub_count'],
+                        did_number: ['DID', 'did_number', 'DID號碼'],
+                        note: ['備註', 'note']
+                    },
+                    dispatch: {
+                        extension: ['分機號碼', 'extension', 'Extension', '號碼', '分機', '調度台', 'Dispatch'],
+                        c_terminal: ['C端子位置', 'c_terminal'],
+                        lens: ['LENS', 'lens'],
+                        line_group_room: ['線組編號(機房)', 'line_group_room', '機房線組'],
+                        line_group_site: ['線組編號(現場)', 'line_group_site', '現場線組'],
+                        unit: ['使用單位', 'unit', '單位'],
+                        location: ['裝機位置', 'location'],
+                        sub_count: ['副機數量', 'sub_count'],
+                        contact_tel: ['連絡電話', 'contact_tel']
+                    }
+                };
+
+                const mappingType = type === 'phones' ? 'phones' : 'dispatch';
+                const currentMapping = MAPPING[mappingType];
+
+                // Identify active fields (columns present in the file)
+                const activeDbFields = [];
+                for (const [dbField, possibleHeaders] of Object.entries(currentMapping)) {
+                    if (possibleHeaders.some(h => fileHeaders.includes(h.toLowerCase()))) {
+                        activeDbFields.push({ dbField, possibleHeaders });
+                    }
+                }
 
                 // 1. Map Excel columns to DB columns
                 const records = jsonData.map(row => {
@@ -3459,42 +3504,13 @@ function handleSwipe() {
                         return undefined;
                     };
 
-                    const MAPPING = {
-                        phones: {
-                            extension: ['號碼', '分機', 'extension', 'Extension', '分機號碼'],
-                            type: ['數位', 'type', '分機種類'],
-                            lens: ['LENS', 'lens'],
-                            mdf_port: ['機房端子編號', 'mdf_port', 'MDF'],
-                            remote_mc_id: ['遠端機櫃 MC-ID (第幾對線)', 'remote_mc_id', 'MC-ID'],
-                            UG50_port: ['遠端機櫃UG-50編號', 'UG50_port', 'UG50'],
-                            line_group_id: ['線組編號', 'line_group_id'],
-                            unit: ['單位', 'unit', '使用單位'],
-                            location: ['裝機位置', 'location'],
-                            call_class: ['通話等級', 'call_class'],
-                            sub_count: ['副機數量', 'sub_count'],
-                            did_number: ['DID', 'did_number', 'DID號碼'],
-                            note: ['備註', 'note']
-                        },
-                        dispatch: {
-                            extension: ['分機號碼', 'extension', 'Extension', '號碼', '分機', '調度台', 'Dispatch'],
-                            c_terminal: ['C端子位置', 'c_terminal'],
-                            lens: ['LENS', 'lens'],
-                            line_group_room: ['線組編號(機房)', 'line_group_room', '機房線組'],
-                            line_group_site: ['線組編號(現場)', 'line_group_site', '現場線組'],
-                            unit: ['使用單位', 'unit', '單位'],
-                            location: ['裝機位置', 'location'],
-                            sub_count: ['副機數量', 'sub_count'],
-                            contact_tel: ['連絡電話', 'contact_tel']
-                        }
-                    };
-
-                    const mappingType = type === 'phones' ? 'phones' : 'dispatch';
-                    const currentMapping = MAPPING[mappingType];
-
-                    for (const [dbField, headers] of Object.entries(currentMapping)) {
-                        const val = getValue(headers);
+                    for (const { dbField, possibleHeaders } of activeDbFields) {
+                        const val = getValue(possibleHeaders);
                         if (val !== undefined) {
                             newRow[dbField] = val;
+                        } else {
+                            // Header exists but value is empty -> Set to null to clear in DB
+                            newRow[dbField] = null;
                         }
                     }
                     
