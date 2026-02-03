@@ -3442,43 +3442,53 @@ function handleSwipe() {
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
                 const jsonData = XLSX.utils.sheet_to_json(sheet, {defval: null});
                 
+                // Helper to normalize headers for comparison
+                const normalizeHeader = (h) => {
+                    if (!h) return '';
+                    return String(h)
+                        .toLowerCase()
+                        .replace(/\s+/g, '') // Remove all spaces
+                        .replace(/（/g, '(') // Fullwidth ( to halfwidth
+                        .replace(/）/g, ')') // Fullwidth ) to halfwidth
+                        .replace(/臺/g, '台') // Normalize Tai
+                        .replace(/聯/g, '連'); // Normalize Lian
+                };
+
                 // Get headers to determine which columns are actually present in the file
                 const headerData = XLSX.utils.sheet_to_json(sheet, {header: 1});
-                // Robust header extraction: trim, lowercase, filter empty
-                const fileHeaders = (headerData[0] || [])
-                    .map(h => String(h || '').trim().toLowerCase())
-                    .filter(h => h);
+                const rawFileHeaders = headerData[0] || [];
+                const fileHeaders = rawFileHeaders.map(h => normalizeHeader(h)).filter(h => h);
 
-                console.log('Detected File Headers:', fileHeaders);
+                console.log('Detected File Headers (Normalized):', fileHeaders);
 
                 updateProgress(20, '解析資料...');
 
                 const MAPPING = {
                     phones: {
-                        extension: ['號碼', '分機', 'extension', 'Extension', '分機號碼'],
+                        extension: ['號碼', '分機', 'extension', '分機號碼'],
                         type: ['數位', 'type', '分機種類'],
-                        lens: ['LENS', 'lens'],
-                        mdf_port: ['機房端子編號', 'mdf_port', 'MDF'],
-                        remote_mc_id: ['遠端機櫃 MC-ID (第幾對線)', 'remote_mc_id', 'MC-ID'],
-                        UG50_port: ['遠端機櫃UG-50編號', 'UG50_port', 'UG50'],
+                        lens: ['lens'],
+                        mdf_port: ['機房端子編號', 'mdf_port', 'mdf'],
+                        remote_mc_id: ['遠端機櫃mc-id(第幾對線)', 'remote_mc_id', 'mc-id'],
+                        UG50_port: ['遠端機櫃ug-50編號', 'ug50_port', 'ug50'],
                         line_group_id: ['線組編號', 'line_group_id'],
                         unit: ['單位', 'unit', '使用單位'],
                         location: ['裝機位置', 'location'],
                         call_class: ['通話等級', 'call_class'],
                         sub_count: ['副機數量', 'sub_count'],
-                        did_number: ['DID', 'did_number', 'DID號碼'],
+                        did_number: ['did', 'did_number', 'did號碼'],
                         note: ['備註', 'note']
                     },
                     dispatch: {
-                        extension: ['分機號碼', 'extension', 'Extension', '號碼', '分機', '調度台', 'Dispatch'],
-                        c_terminal: ['C端子位置', 'c_terminal'],
-                        lens: ['LENS', 'lens'],
+                        extension: ['分機號碼', 'extension', '號碼', '分機', '調度台', 'dispatch'],
+                        c_terminal: ['c端子位置', 'c_terminal', 'c端子'],
+                        lens: ['lens'],
                         line_group_room: ['線組編號(機房)', 'line_group_room', '機房線組'],
                         line_group_site: ['線組編號(現場)', 'line_group_site', '現場線組'],
                         unit: ['使用單位', 'unit', '單位'],
                         location: ['裝機位置', 'location'],
                         sub_count: ['副機數量', 'sub_count'],
-                        contact_tel: ['連絡電話', 'contact_tel']
+                        contact_tel: ['連絡電話', 'contact_tel', '聯絡電話']
                     }
                 };
 
@@ -3488,9 +3498,9 @@ function handleSwipe() {
                 // Identify active fields (columns present in the file)
                 const activeDbFields = [];
                 for (const [dbField, possibleHeaders] of Object.entries(currentMapping)) {
-                    // Check if ANY of the possible headers exists in the file headers
+                    // Check if ANY of the possible headers matches the normalized file headers
                     const match = possibleHeaders.some(h => {
-                        const target = String(h).trim().toLowerCase();
+                        const target = normalizeHeader(h);
                         return fileHeaders.includes(target);
                     });
                     
@@ -3505,21 +3515,17 @@ function handleSwipe() {
                 const records = jsonData.map(row => {
                     const newRow = {};
                     
-                    // Normalize row keys for case-insensitive/trim matching
-                    // Create a map of normalized key -> original key
+                    // Normalize row keys for matching
                     const normalizedRowKeys = {};
                     Object.keys(row).forEach(k => {
-                        normalizedRowKeys[String(k).trim().toLowerCase()] = k;
+                        normalizedRowKeys[normalizeHeader(k)] = k;
                     });
 
                     // Helper to find value from possible headers
                     const getValue = (possibleHeaders) => {
                         for (const header of possibleHeaders) {
-                            // 1. Try exact match (rarely works if keys have spaces)
-                            if (row[header] !== undefined) return row[header];
-                            
-                            // 2. Try normalized match
-                            const target = String(header).trim().toLowerCase();
+                            // 1. Try normalized match
+                            const target = normalizeHeader(header);
                             const originalKey = normalizedRowKeys[target];
                             
                             if (originalKey && row[originalKey] !== undefined) {
