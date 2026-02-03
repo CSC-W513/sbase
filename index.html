@@ -501,17 +501,16 @@ function handleLightboxKeys(e) {
 }
 
 // Zoom & Swipe Logic
-let touchStartX = 0;
-let touchEndX = 0;
+let isDragging = false;
+let startX = 0;
+let startY = 0;
+let currentX = 0;
+let currentY = 0;
 let initialPinchDistance = 0;
-let currentScale = 1;
 let initialScale = 1;
-let currentTranslateX = 0;
-let currentTranslateY = 0;
-let startTranslateX = 0;
-let startTranslateY = 0;
-let lastTouchX = 0;
-let lastTouchY = 0;
+let currentScale = 1;
+let lastTapTime = 0; // For double tap
+let rafId = null;
 
 function getDistance(touches) {
     return Math.hypot(
@@ -523,82 +522,120 @@ function getDistance(touches) {
 function resetZoom() {
     currentScale = 1;
     initialScale = 1;
-    currentTranslateX = 0;
-    currentTranslateY = 0;
-    const img = document.getElementById('lightbox-img');
-    if(img) img.style.transform = `translate(0px, 0px) scale(1)`;
+    currentX = 0;
+    currentY = 0;
+    updateTransform();
+}
+
+function updateTransform() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+        const img = document.getElementById('lightbox-img');
+        if (img) {
+            img.style.transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
+            // Add transition only when not dragging (for smooth snap-back)
+            img.style.transition = isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
+        }
+    });
 }
 
 function handleTouchStart(e) {
+    const img = document.getElementById('lightbox-img');
+    isDragging = true;
+    
+    // Double Tap to Zoom
+    if (e.touches.length === 1) {
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTapTime;
+        if (tapLength < 300 && tapLength > 0) {
+            e.preventDefault();
+            if (currentScale === 1) {
+                // Zoom in
+                currentScale = 2.5;
+            } else {
+                // Zoom out
+                resetZoom();
+                return;
+            }
+            updateTransform();
+            lastTapTime = 0;
+            return;
+        }
+        lastTapTime = currentTime;
+    }
+
     if (e.touches.length === 2) {
+        // Pinch Start
         initialPinchDistance = getDistance(e.touches);
         initialScale = currentScale;
-        e.preventDefault();
+        e.preventDefault(); 
     } else if (e.touches.length === 1) {
-        touchStartX = e.changedTouches[0].screenX;
-        startTranslateX = currentTranslateX;
-        startTranslateY = currentTranslateY;
-        // Store touch start for pan calculation
-        lastTouchX = e.touches[0].clientX;
-        lastTouchY = e.touches[0].clientY;
+        // Pan/Swipe Start
+        // Record the offset relative to the current position
+        startX = e.touches[0].clientX - currentX;
+        startY = e.touches[0].clientY - currentY;
     }
 }
 
 function handleTouchMove(e) {
-    const img = document.getElementById('lightbox-img');
-    
+    if (!isDragging) return;
+
     if (e.touches.length === 2) {
         // Pinch Zoom
         e.preventDefault();
         const dist = getDistance(e.touches);
         if (initialPinchDistance > 0) {
             const scale = dist / initialPinchDistance;
-            currentScale = Math.min(Math.max(1, initialScale * scale), 4); // Limit zoom 1x to 4x
-            img.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+            currentScale = Math.min(Math.max(1, initialScale * scale), 4);
+            updateTransform();
         }
     } else if (e.touches.length === 1) {
-        // Pan or Swipe
+        e.preventDefault(); // Prevent scrolling
+        
         if (currentScale > 1) {
-            // Pan
-            e.preventDefault();
-            const deltaX = e.touches[0].clientX - lastTouchX;
-            const deltaY = e.touches[0].clientY - lastTouchY;
-            
-            currentTranslateX += deltaX;
-            currentTranslateY += deltaY;
-            
-            lastTouchX = e.touches[0].clientX;
-            lastTouchY = e.touches[0].clientY;
-            
-            img.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+            // Pan (Zoomed)
+            currentX = e.touches[0].clientX - startX;
+            currentY = e.touches[0].clientY - startY;
+            updateTransform();
         } else {
-            // Let default swipe happen? No, we have custom swipe logic
-            // But we shouldn't prevent default unless it's strictly horizontal?
-            // Actually for swipe nav, we need to track it ourselves if we preventDefault
-            // But if we don't preventDefault, page might scroll
-            e.preventDefault();
+            // Swipe (Not Zoomed) - Horizontal only
+            // Recalculate X based on new touch position
+            currentX = e.touches[0].clientX - startX;
+            // Lock Y to 0 for swipe
+            currentY = 0; 
+            updateTransform();
         }
     }
 }
 
 function handleTouchEnd(e) {
-    if (e.changedTouches.length > 0) {
-       // Swipe Detection (only if not zoomed)
-       if (currentScale === 1) {
-           touchEndX = e.changedTouches[0].screenX;
-           handleSwipe();
-       }
+    isDragging = false;
+    
+    // If lifting one finger during pinch, reset distance
+    if (e.touches.length < 2) {
+        initialPinchDistance = 0;
     }
-    initialPinchDistance = 0;
-}
 
-function handleSwipe() {
-    const threshold = 50; 
-    if (touchEndX < touchStartX - threshold) {
-        nextImage(); 
-    }
-    if (touchEndX > touchStartX + threshold) {
-        prevImage(); 
+    if (currentScale === 1) {
+        // Swipe Logic
+        const threshold = 80; 
+        if (currentX < -threshold) {
+            nextImage(); // Swipe Left -> Next
+        } else if (currentX > threshold) {
+            prevImage(); // Swipe Right -> Prev
+        } else {
+            // Spring back
+            currentX = 0;
+            currentY = 0;
+            updateTransform();
+        }
+    } else {
+        // Handle Zoom Bounds (Optional: Snap back if panned too far)
+        if (currentScale < 1) {
+            resetZoom();
+        } else {
+            updateTransform(); // Trigger transition for inertia if needed
+        }
     }
 }
 
@@ -3707,7 +3744,7 @@ function handleSwipe() {
                 // Reset input
                 input.value = '';
 
-                if (type === 'phones') searchPhones(); else searchDispatch();
+                // if (type === 'phones') searchPhones(); else searchDispatch();
 
             } catch (e) {
                 console.error('Import error:', e);
