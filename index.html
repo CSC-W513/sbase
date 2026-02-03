@@ -3440,11 +3440,16 @@ function handleSwipe() {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json(sheet);
+                const jsonData = XLSX.utils.sheet_to_json(sheet, {defval: null});
                 
                 // Get headers to determine which columns are actually present in the file
                 const headerData = XLSX.utils.sheet_to_json(sheet, {header: 1});
-                const fileHeaders = (headerData[0] || []).map(h => String(h).trim().toLowerCase());
+                // Robust header extraction: trim, lowercase, filter empty
+                const fileHeaders = (headerData[0] || [])
+                    .map(h => String(h || '').trim().toLowerCase())
+                    .filter(h => h);
+
+                console.log('Detected File Headers:', fileHeaders);
 
                 updateProgress(20, '解析資料...');
 
@@ -3483,23 +3488,43 @@ function handleSwipe() {
                 // Identify active fields (columns present in the file)
                 const activeDbFields = [];
                 for (const [dbField, possibleHeaders] of Object.entries(currentMapping)) {
-                    if (possibleHeaders.some(h => fileHeaders.includes(h.toLowerCase()))) {
+                    // Check if ANY of the possible headers exists in the file headers
+                    const match = possibleHeaders.some(h => {
+                        const target = String(h).trim().toLowerCase();
+                        return fileHeaders.includes(target);
+                    });
+                    
+                    if (match) {
                         activeDbFields.push({ dbField, possibleHeaders });
                     }
                 }
+                
+                console.log('Active DB Fields:', activeDbFields.map(f => f.dbField));
 
                 // 1. Map Excel columns to DB columns
                 const records = jsonData.map(row => {
                     const newRow = {};
                     
+                    // Normalize row keys for case-insensitive/trim matching
+                    // Create a map of normalized key -> original key
+                    const normalizedRowKeys = {};
+                    Object.keys(row).forEach(k => {
+                        normalizedRowKeys[String(k).trim().toLowerCase()] = k;
+                    });
+
                     // Helper to find value from possible headers
                     const getValue = (possibleHeaders) => {
                         for (const header of possibleHeaders) {
+                            // 1. Try exact match (rarely works if keys have spaces)
                             if (row[header] !== undefined) return row[header];
-                            // Try lowercase match
-                            const lowerHeader = header.toLowerCase();
-                            const rowKey = Object.keys(row).find(k => k.toLowerCase() === lowerHeader);
-                            if (rowKey) return row[rowKey];
+                            
+                            // 2. Try normalized match
+                            const target = String(header).trim().toLowerCase();
+                            const originalKey = normalizedRowKeys[target];
+                            
+                            if (originalKey && row[originalKey] !== undefined) {
+                                return row[originalKey];
+                            }
                         }
                         return undefined;
                     };
@@ -3509,7 +3534,10 @@ function handleSwipe() {
                         if (val !== undefined) {
                             newRow[dbField] = val;
                         } else {
-                            // Header exists but value is empty -> Set to null to clear in DB
+                            // Header exists (detected in activeDbFields) but getValue returned undefined.
+                            // This usually means the cell is empty (and sheet_to_json(defval:null) made it null)
+                            // OR sheet_to_json didn't produce the key despite header existing.
+                            // In either case, we should CLEAR the field.
                             newRow[dbField] = null;
                         }
                     }
