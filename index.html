@@ -2948,6 +2948,9 @@ function handleTouchEnd(e) {
             const value = div.innerText.trim();
             updates[key] = value;
         });
+
+        // Mark as mobile edited
+        updates['is_mobile_edited'] = true;
         
         // Detect changes for notification
         let changedDetails = [];
@@ -3415,7 +3418,8 @@ function handleTouchEnd(e) {
                     '通話等級': row.call_class || '',
                     '副機數量': row.sub_count || '',
                     'DID': row.did_number || '',
-                    '備註': row.note || ''
+                    '備註': row.note || '',
+                    '手機編輯': row.is_mobile_edited ? '是' : ''
                 }));
             } else {
                 // Mapping for dispatch
@@ -3429,7 +3433,8 @@ function handleTouchEnd(e) {
                     '使用單位': row.unit || '',
                     '裝機位置': row.location || '',
                     '副機數量': row.sub_count || '',
-                    '連絡電話': row.contact_tel || ''
+                    '連絡電話': row.contact_tel || '',
+                    '手機編輯': row.is_mobile_edited ? '是' : ''
                 }));
             }
 
@@ -3610,12 +3615,14 @@ function handleTouchEnd(e) {
                 
                 let successCount = 0;
                 let errorCount = 0;
+                let skippedCount = 0;
                 let lastError = null;
 
                 const executeBatch = async (items) => {
                     const BATCH_SIZE = 200; // Safe size for URL length in .in() query
                     let localSuccess = 0;
                     let localError = 0;
+                    let localSkipped = 0;
                     let localLastError = null;
 
                     for (let i = 0; i < items.length; i += BATCH_SIZE) {
@@ -3655,6 +3662,12 @@ function handleTouchEnd(e) {
                             const oldRecord = existingMap.get(ext);
                             
                             if (oldRecord) {
+                                // Check if mobile edited - PROTECT DATA
+                                if (oldRecord.is_mobile_edited) {
+                                    localSkipped++;
+                                    return; // Skip this record
+                                }
+
                                 // Check if any field changed
                                 let hasChange = false;
                                 
@@ -3708,7 +3721,7 @@ function handleTouchEnd(e) {
                             localSuccess += upsertBatch.length;
                         }
                     }
-                    return { localSuccess, localError, localLastError };
+                    return { localSuccess, localError, localLastError, localSkipped };
                 };
                 
                 // Deduplicate validRecords (Keep last occurrence)
@@ -3723,6 +3736,7 @@ function handleTouchEnd(e) {
                 const result = await executeBatch(uniqueRecords);
                 successCount = result.localSuccess;
                 errorCount = result.localError;
+                skippedCount = result.localSkipped;
                 if (result.localLastError) lastError = result.localLastError;
                 
                 updateProgress(100, '匯入完成');
@@ -3731,15 +3745,15 @@ function handleTouchEnd(e) {
 
                 const time = new Date().toLocaleString();
                 const label = type === 'phones' ? '分機' : '調度電話';
-                const msg = `<b>資料匯入通知</b>\n用戶: ${currentUser.username}\n時間: ${time}\n類型: ${label}\n處理筆數: ${successCount}\n失敗筆數: ${errorCount}`;
+                const msg = `<b>資料匯入通知</b>\n用戶: ${currentUser.username}\n時間: ${time}\n類型: ${label}\n處理筆數: ${successCount}\n失敗筆數: ${errorCount}\n手機保護(略過): ${skippedCount}`;
                 
                 // Log Import
-                await logModification(table, 'IMPORT', null, `匯入${label}資料: 成功 ${successCount} 筆, 失敗 ${errorCount} 筆`, null, null);
+                await logModification(table, 'IMPORT', null, `匯入${label}資料: 成功 ${successCount} 筆, 失敗 ${errorCount} 筆, 手機保護(略過) ${skippedCount} 筆`, null, null);
 
                 sendTelegramNotification(msg);
 
                 // Simple alert
-                alert(`匯入完成\n總處理: ${successCount} 筆` + (errorCount > 0 ? `\n失敗: ${errorCount} 筆` : ''));
+                alert(`匯入完成\n總處理: ${successCount} 筆` + (errorCount > 0 ? `\n失敗: ${errorCount} 筆` : '') + (skippedCount > 0 ? `\n手機保護(略過): ${skippedCount} 筆` : ''));
                 
                 // Reset input
                 input.value = '';
