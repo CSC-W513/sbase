@@ -2809,9 +2809,16 @@ function handleTouchEnd(e) {
             let html = '';
             rows.forEach((row, index) => {
                 const globalIndex = startIndex + index + 1;
-                html += `<div class="result-card" data-id="${row.id}">
+                
+                // Protection Indicator
+                const isProtected = row.is_mobile_edited;
+                const protectedLabel = isProtected ? '<span style="color: #e91e63; font-weight: bold; margin-left: 8px; font-size: 0.9em;">(手機保護)</span>' : '';
+                const cardStyle = isProtected ? 'border-left: 4px solid #e91e63;' : '';
+
+                html += `<div class="result-card" data-id="${row.id}" style="${cardStyle}">
                     <div class="card-header">
                         <span>搜尋結果 #${globalIndex}</span>
+                        ${protectedLabel}
                     </div>
                     <div class="card-body">`;
                 
@@ -2847,13 +2854,20 @@ function handleTouchEnd(e) {
                 
                 if (isEditable) {
                     let deleteBtn = '';
+                    let protectBtn = '';
+
                     if (currentUser && currentUser.role === 'admin') {
                         deleteBtn = `<button onclick="deletePhone('${row.id}')" style="background:#d32f2f;">刪除</button>`;
+                        
+                        if (isProtected) {
+                            protectBtn = `<button onclick="toggleMobileProtection('${row.id}', 'phones', true)" style="background:#ff9800; color:white;">取消保護</button>`;
+                        }
                     }
                     
                     html += `
                     <div class="card-actions">
                         <button onclick="enableEdit(this, 'phones')">修改</button>
+                        ${protectBtn}
                         ${deleteBtn}
                     </div>`;
                 }
@@ -3129,6 +3143,41 @@ function handleTouchEnd(e) {
         }
     }
 
+    async function toggleMobileProtection(id, table, currentStatus) {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('權限不足');
+            return;
+        }
+        
+        const newStatus = !currentStatus;
+        const action = newStatus ? '開啟保護' : '取消保護';
+        
+        if (!confirm(`確定要${action}嗎？\n(取消保護後，Excel匯入將會覆蓋此筆資料)`)) return;
+        
+        try {
+            const tableName = table === 'phones' ? 'phones' : 'dispatch_phones';
+            const { error } = await supabaseClient
+                .from(tableName)
+                .update({ is_mobile_edited: newStatus })
+                .eq('id', id);
+                
+            if (error) throw error;
+            
+            // Log it
+            await logModification(tableName, 'UPDATE', id, `${action} (is_mobile_edited: ${newStatus})`, { is_mobile_edited: currentStatus }, { is_mobile_edited: newStatus });
+            
+            alert(`已${action}`);
+            
+            // Refresh
+            if (table === 'phones') searchPhones();
+            else searchDispatch();
+            
+        } catch (e) {
+            console.error('Toggle protection error:', e);
+            alert('操作失敗: ' + e.message);
+        }
+    }
+
     // ================= DISPATCH =================
     // dispatchData is declared globally above
     async function searchDispatch() {
@@ -3209,9 +3258,16 @@ function handleTouchEnd(e) {
             let html = '';
             rows.forEach((row, index) => {
                 const globalIndex = startIndex + index + 1;
-                html += `<div class="result-card" data-id="${row.id}">
+                
+                // Protection Indicator
+                const isProtected = row.is_mobile_edited;
+                const protectedLabel = isProtected ? '<span style="color: #e91e63; font-weight: bold; margin-left: 8px; font-size: 0.9em;">(手機保護)</span>' : '';
+                const cardStyle = isProtected ? 'border-left: 4px solid #e91e63;' : '';
+
+                html += `<div class="result-card" data-id="${row.id}" style="${cardStyle}">
                     <div class="card-header">
                         <span>搜尋結果 #${globalIndex}</span>
+                        ${protectedLabel}
                     </div>
                     <div class="card-body">`;
                 
@@ -3247,13 +3303,20 @@ function handleTouchEnd(e) {
                 
                 if (isEditable) {
                     let deleteBtn = '';
+                    let protectBtn = '';
+
                     if (currentUser && currentUser.role === 'admin') {
                         deleteBtn = `<button onclick="deleteDispatch('${row.id}')" style="background:#d32f2f;">刪除</button>`;
+                        
+                        if (isProtected) {
+                            protectBtn = `<button onclick="toggleMobileProtection('${row.id}', 'dispatch_phones', true)" style="background:#ff9800; color:white;">取消保護</button>`;
+                        }
                     }
 
                     html += `
                     <div class="card-actions">
                         <button onclick="enableEdit(this, 'dispatch')">修改</button>
+                        ${protectBtn}
                         ${deleteBtn}
                     </div>`;
                 }
