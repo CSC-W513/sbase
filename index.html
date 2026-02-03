@@ -3687,6 +3687,7 @@ function handleTouchEnd(e) {
                     let localError = 0;
                     let localSkipped = 0;
                     let localLastError = null;
+                    let localErrorDetails = [];
 
                     for (let i = 0; i < items.length; i += BATCH_SIZE) {
                         const batch = items.slice(i, i + BATCH_SIZE);
@@ -3706,6 +3707,7 @@ function handleTouchEnd(e) {
                             console.error('Fetch existing data error:', fetchError);
                             localError += batch.length;
                             localLastError = fetchError;
+                            localErrorDetails.push(`Batch fetch error: ${fetchError.message}`);
                             continue;
                         }
 
@@ -3777,14 +3779,26 @@ function handleTouchEnd(e) {
                             .upsert(upsertBatch);
 
                         if (error) {
-                            console.error(`Batch upsert error:`, error);
-                            localError += upsertBatch.length;
-                            localLastError = error;
+                            console.warn(`Batch upsert error, retrying individually:`, error);
+                            // Retry individually to isolate errors
+                            for (const item of upsertBatch) {
+                                const { error: singleError } = await supabaseClient
+                                    .from(table)
+                                    .upsert(item);
+                                
+                                if (singleError) {
+                                    localError++;
+                                    localLastError = singleError;
+                                    localErrorDetails.push(`分機 ${item.extension}: ${singleError.message}`);
+                                } else {
+                                    localSuccess++;
+                                }
+                            }
                         } else {
                             localSuccess += upsertBatch.length;
                         }
                     }
-                    return { localSuccess, localError, localLastError, localSkipped };
+                    return { localSuccess, localError, localLastError, localSkipped, localErrorDetails };
                 };
                 
                 // Deduplicate validRecords (Keep last occurrence)
@@ -3801,6 +3815,7 @@ function handleTouchEnd(e) {
                 errorCount = result.localError;
                 skippedCount = result.localSkipped;
                 if (result.localLastError) lastError = result.localLastError;
+                const errorDetails = result.localErrorDetails || [];
                 
                 updateProgress(100, '匯入完成');
                 await new Promise(r => setTimeout(r, 500)); 
@@ -3815,8 +3830,17 @@ function handleTouchEnd(e) {
 
                 sendTelegramNotification(msg);
 
-                // Simple alert
-                alert(`匯入完成\n總處理: ${successCount} 筆` + (errorCount > 0 ? `\n失敗: ${errorCount} 筆` : '') + (skippedCount > 0 ? `\n手機保護(略過): ${skippedCount} 筆` : ''));
+                // Detailed alert
+                let alertMsg = `匯入完成\n總處理: ${successCount} 筆`;
+                if (errorCount > 0) alertMsg += `\n失敗: ${errorCount} 筆`;
+                if (skippedCount > 0) alertMsg += `\n手機保護(略過): ${skippedCount} 筆`;
+                
+                if (errorDetails.length > 0) {
+                    alertMsg += `\n\n錯誤詳情 (前5筆):\n` + errorDetails.slice(0, 5).join('\n');
+                    if (errorDetails.length > 5) alertMsg += `\n...等共 ${errorDetails.length} 筆錯誤`;
+                }
+
+                alert(alertMsg);
                 
                 // Reset input
                 input.value = '';
