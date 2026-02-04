@@ -3948,6 +3948,7 @@ function handleTouchEnd(e) {
 
             // 2. Get last modification log for these phones to see changed fields
             const phoneIds = phones.map(p => p.id);
+            // Fetch more logs to ensure we capture relevant changes
             const { data: logs, error: logError } = await supabaseClient
                 .from('modification_logs')
                 .select('record_id, changed_fields, modified_at')
@@ -3955,13 +3956,14 @@ function handleTouchEnd(e) {
                 .in('record_id', phoneIds)
                 .order('modified_at', { ascending: false });
                 
-            // Map logs to phones
-            const latestLogs = {};
+            // Map logs to phones (Collect ALL logs per phone, not just the first one)
+            const logsByPhone = {};
             if (logs) {
                 logs.forEach(log => {
-                    if (!latestLogs[log.record_id]) {
-                        latestLogs[log.record_id] = log;
+                    if (!logsByPhone[log.record_id]) {
+                        logsByPhone[log.record_id] = [];
                     }
+                    logsByPhone[log.record_id].push(log);
                 });
             }
             
@@ -3971,50 +3973,64 @@ function handleTouchEnd(e) {
             // Add "Cancel All" button if Admin
             if (currentUser && currentUser.role === 'admin') {
                 html += `
-                <div style="text-align: right; margin-bottom: 15px;">
-                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                <div style="text-align: right; margin-bottom: 10px;">
+                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
                         全部取消保護
                     </button>
                 </div>`;
             } else {
                  html += `
-                <div style="text-align: right; margin-bottom: 15px;">
-                     <span style="color: #888; font-size: 0.9em;">(僅管理者可取消保護)</span>
+                <div style="text-align: right; margin-bottom: 10px;">
+                     <span style="color: #888; font-size: 0.75em;">(僅管理者可取消保護)</span>
                 </div>`;
             }
 
             phones.forEach(phone => {
-                const log = latestLogs[phone.id];
-                let changes = '無詳細修改紀錄';
-                if (log && log.changed_fields) {
-                    changes = log.changed_fields;
+                const pLogs = logsByPhone[phone.id] || [];
+                // Filter logs that have actual content
+                const validLogs = pLogs.filter(l => l.changed_fields && l.changed_fields !== '無修改' && l.changed_fields.trim() !== '');
+                
+                let changesHtml = '';
+                if (validLogs.length === 0) {
+                    changesHtml = '無詳細修改紀錄';
+                } else {
+                    // Aggregate changes, showing time for context
+                    changesHtml = validLogs.map(l => {
+                        // Short date format: MM/DD HH:mm
+                        const dateObj = new Date(l.modified_at);
+                        const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+                        return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
+                            <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${l.changed_fields}
+                        </div>`;
+                    }).join('');
                 }
                 
                 let cancelBtn = '';
                 if (currentUser && currentUser.role === 'admin') {
                     cancelBtn = `
-                        <button onclick="cancelMobileEdit('${phone.id}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; cursor: pointer;">
+                        <button onclick="cancelMobileEdit('${phone.id}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
                             取消保護
                         </button>`;
                 }
 
                 html += `
-                <div style="background: #252525; border: 1px solid #444; padding: 12px; margin-bottom: 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.3); color: #e0e0e0;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                        <div>
-                            <div style="font-weight: bold; font-size: 1.1em; color: #2196F3;">分機: ${phone.extension || '未命名'}</div>
-                            <div style="font-size: 0.9em; color: #aaa;">
+                <div style="background: #252525; border: 1px solid #444; padding: 8px; margin-bottom: 8px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); color: #e0e0e0;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
+                        <div style="line-height: 1.2;">
+                            <div style="font-weight: bold; font-size: 0.9em; color: #2196F3;">分機: ${phone.extension || '未命名'}</div>
+                            <div style="font-size: 0.75em; color: #aaa;">
                                 ${phone.unit || '-'} | ${phone.location || '-'}
                             </div>
-                            <div style="font-size: 0.8em; color: #888; margin-top: 2px;">
-                                修改時間: ${new Date(phone.updated_at).toLocaleString()}
+                            <div style="font-size: 0.7em; color: #888;">
+                                ${new Date(phone.updated_at).toLocaleString()}
                             </div>
                         </div>
-                        ${cancelBtn}
+                        <div style="margin-left: 8px;">
+                            ${cancelBtn}
+                        </div>
                     </div>
-                    <div style="background: #1e1e1e; padding: 8px; border-radius: 4px; font-size: 0.9em; color: #ccc; border: 1px solid #333;">
-                        <strong style="color: #bbb;">修改欄位:</strong><br>
-                        <div style="white-space: pre-wrap; margin-top: 4px;">${changes}</div>
+                    <div style="background: #1e1e1e; padding: 5px; border-radius: 3px; font-size: 0.75em; color: #ccc; border: 1px solid #333; line-height: 1.3;">
+                        <div style="white-space: pre-wrap;">${changesHtml}</div>
                     </div>
                 </div>
                 `;
