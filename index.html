@@ -1665,7 +1665,7 @@ function handleTouchEnd(e) {
     <!-- Mobile Edited Stats -->
     <div id="mobileEditStatsRow" style="margin-bottom: 15px; display: none;">
         <div onclick="showMobileDetails()" style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 8px; display: inline-flex; align-items: center; cursor: pointer; font-size: 0.85em; box-shadow: 0 2px 5px rgba(0,0,0,0.2); transition: transform 0.1s;">
-            <span style="margin-right: 5px;">📱 手機修改分機:</span>
+            <span style="margin-right: 5px;">📱 保護分機:</span>
             <span id="mobileEditCount" style="font-weight: bold; font-size: 1.1em;">0</span>
             <span style="margin-left: 5px;">筆</span>
         </div>
@@ -3968,17 +3968,13 @@ function handleTouchEnd(e) {
 
             if (errorDispatch) throw errorDispatch;
             
-            const allItems = [
-                ...(phones || []).map(p => ({ ...p, _table: 'phones', _name: p.extension })),
-                ...(dispatch || []).map(d => ({ ...d, _table: 'dispatch_phones', _name: d.extension }))
-            ];
-
-            if (allItems.length === 0) {
-                list.innerHTML = '<p style="text-align: center; color: #888;">無手機修改資料</p>';
+            // Check if empty
+            if ((!phones || phones.length === 0) && (!dispatch || dispatch.length === 0)) {
+                list.innerHTML = '<p style="text-align: center; color: #888;">無保護資料</p>';
                 return;
             }
 
-            // 2. Get last modification log for these items
+            // 3. Prepare Logs
             const phoneIds = (phones || []).map(p => p.id);
             const dispatchIds = (dispatch || []).map(d => d.id);
             
@@ -4004,26 +4000,23 @@ function handleTouchEnd(e) {
                  if (dLogs) logs = logs.concat(dLogs);
             }
 
-            // Map logs
             const logsByKey = {};
             if (logs) {
                 logs.forEach(log => {
                     const key = log.table_name + '_' + log.record_id;
-                    if (!logsByKey[key]) {
-                        logsByKey[key] = [];
-                    }
+                    if (!logsByKey[key]) logsByKey[key] = [];
                     logsByKey[key].push(log);
                 });
             }
             
-            // 3. Render
+            // 4. Render
             let html = '';
             
-            // Add "Cancel All" button if Admin
+            // Cancel All Button
             if (currentUser && currentUser.role === 'admin') {
                 html += `
-                <div style="text-align: right; margin-bottom: 10px;">
-                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                <div style="text-align: right; margin-bottom: 15px;">
+                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
                         全部取消保護
                     </button>
                 </div>`;
@@ -4034,12 +4027,11 @@ function handleTouchEnd(e) {
                 </div>`;
             }
 
-            allItems.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-
-            allItems.forEach(item => {
-                const key = item._table + '_' + item.id;
+            // Render Function
+            const renderItem = (item, type) => {
+                const tableName = type === 'phones' ? 'phones' : 'dispatch_phones';
+                const key = tableName + '_' + item.id;
                 const pLogs = logsByKey[key] || [];
-                // Filter logs
                 const validLogs = pLogs.filter(l => l.changed_fields && l.changed_fields !== '無修改' && l.changed_fields.trim() !== '');
                 
                 let changesHtml = '';
@@ -4048,9 +4040,7 @@ function handleTouchEnd(e) {
                 } else {
                     changesHtml = validLogs.map(l => {
                         let dateStr = l.modified_at;
-                        if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-                            dateStr += 'Z';
-                        }
+                        if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) dateStr += 'Z';
                         const dateObj = new Date(dateStr);
                         const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
                         return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
@@ -4062,16 +4052,16 @@ function handleTouchEnd(e) {
                 let cancelBtn = '';
                 if (currentUser && currentUser.role === 'admin') {
                     cancelBtn = `
-                        <button onclick="cancelMobileEdit('${item.id}', '${item._table}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
+                        <button onclick="cancelMobileEdit('${item.id}', '${tableName}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
                             取消保護
                         </button>`;
                 }
 
-                const typeLabel = item._table === 'phones' ? '分機' : '調度';
-                const nameLabel = item._name || '未命名';
-                const badgeColor = item._table === 'phones' ? '#2196F3' : '#9C27B0';
+                const badgeColor = type === 'phones' ? '#2196F3' : '#9C27B0';
+                const typeLabel = type === 'phones' ? '分機' : '調度';
+                const nameLabel = item.extension || '未命名';
 
-                html += `
+                return `
                 <div style="background: #252525; border: 1px solid #444; padding: 8px; margin-bottom: 8px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); color: #e0e0e0;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
                         <div style="line-height: 1.2;">
@@ -4095,7 +4085,24 @@ function handleTouchEnd(e) {
                     </div>
                 </div>
                 `;
-            });
+            };
+
+            // Section 1: Phones
+            if (phones && phones.length > 0) {
+                html += `<div style="background: #333; color: #eee; padding: 5px 10px; border-radius: 4px; margin-bottom: 10px; font-weight: bold; font-size: 0.9em; border-left: 4px solid #2196F3;">
+                    分機資料 (${phones.length})
+                </div>`;
+                html += phones.map(p => renderItem(p, 'phones')).join('');
+            }
+
+            // Section 2: Dispatch
+            if (dispatch && dispatch.length > 0) {
+                const marginTop = (phones && phones.length > 0) ? 'margin-top: 20px;' : '';
+                html += `<div style="background: #333; color: #eee; padding: 5px 10px; border-radius: 4px; ${marginTop} margin-bottom: 10px; font-weight: bold; font-size: 0.9em; border-left: 4px solid #9C27B0;">
+                    調度資料 (${dispatch.length})
+                </div>`;
+                html += dispatch.map(d => renderItem(d, 'dispatch')).join('');
+            }
             
             list.innerHTML = html;
             
