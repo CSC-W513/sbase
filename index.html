@@ -337,6 +337,8 @@
 
         try {
             // 2. Insert Log
+            // Use client-side timestamp to ensure accuracy of user action time and handle timezone correctly (stored as ISO UTC)
+            const now = new Date();
             const { error } = await supabaseClient
                 .from('modification_logs')
                 .insert({
@@ -346,7 +348,8 @@
                     changed_fields: changes,
                     old_data: oldData,
                     new_data: newData,
-                    modified_by: currentUser ? currentUser.username : '訪客'
+                    modified_by: currentUser ? currentUser.username : '訪客',
+                    modified_at: now.toISOString() // Explicitly set timestamp
                 });
                 
             if (error) {
@@ -3996,8 +3999,17 @@ function handleTouchEnd(e) {
                 } else {
                     // Aggregate changes, showing time for context
                     changesHtml = validLogs.map(l => {
+                        // Handle Timestamp: DB defaults to UTC but might return string without 'Z'
+                        // If we inserted with toISOString(), it has 'Z'.
+                        // If it came from default NOW(), it might be raw string.
+                        let dateStr = l.modified_at;
+                        if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+                            // Assume UTC if no timezone indicated
+                            dateStr += 'Z';
+                        }
+                        const dateObj = new Date(dateStr);
+                        
                         // Short date format: MM/DD HH:mm
-                        const dateObj = new Date(l.modified_at);
                         const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
                         return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
                             <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${l.changed_fields}
