@@ -2208,6 +2208,7 @@ function handleTouchEnd(e) {
         searchImages();
         searchPhones();
         searchDispatch();
+        if (typeof updateMobileEditedCount === 'function') updateMobileEditedCount();
     }
 
     function toggleMore(id, count) {
@@ -3075,6 +3076,9 @@ function handleTouchEnd(e) {
                 `;
                 
                 delete originalRowData[id];
+                
+                // Update stats
+                if (typeof updateMobileEditedCount === 'function') updateMobileEditedCount();
             }
         } catch (error) {
             alert('更新失敗: ' + (error.message || error));
@@ -3184,6 +3188,9 @@ function handleTouchEnd(e) {
             // Refresh
             if (table === 'phones') searchPhones();
             else searchDispatch();
+            
+            // Update stats
+            updateMobileEditedCount();
             
         } catch (e) {
             console.error('Toggle protection error:', e);
@@ -3908,16 +3915,24 @@ function handleTouchEnd(e) {
         const countEl = document.getElementById('mobileEditCount');
         
         try {
-            const { count, error } = await supabaseClient
+            const { count: countPhones, error: errorPhones } = await supabaseClient
                 .from('phones')
                 .select('*', { count: 'exact', head: true })
                 .eq('is_mobile_edited', true);
-                
-            if (error) throw error;
             
-            countEl.innerText = count || 0;
+            if (errorPhones) throw errorPhones;
+
+            const { count: countDispatch, error: errorDispatch } = await supabaseClient
+                .from('dispatch_phones')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_mobile_edited', true);
+
+            if (errorDispatch) throw errorDispatch;
             
-            if (count > 0) {
+            const totalCount = (countPhones || 0) + (countDispatch || 0);
+            countEl.innerText = totalCount;
+            
+            if (totalCount > 0) {
                 row.style.display = 'block';
             } else {
                 row.style.display = 'none';
@@ -3936,37 +3951,68 @@ function handleTouchEnd(e) {
         
         try {
             // 1. Get all mobile edited phones
-            const { data: phones, error } = await supabaseClient
+            const { data: phones, error: errorPhones } = await supabaseClient
                 .from('phones')
                 .select('id, extension, unit, location, updated_at')
                 .eq('is_mobile_edited', true)
                 .order('updated_at', { ascending: false });
                 
-            if (error) throw error;
+            if (errorPhones) throw errorPhones;
+
+            // 2. Get all mobile edited dispatch phones
+            const { data: dispatch, error: errorDispatch } = await supabaseClient
+                .from('dispatch_phones')
+                .select('id, extension, unit, location, updated_at')
+                .eq('is_mobile_edited', true)
+                .order('updated_at', { ascending: false });
+
+            if (errorDispatch) throw errorDispatch;
             
-            if (!phones || phones.length === 0) {
+            const allItems = [
+                ...(phones || []).map(p => ({ ...p, _table: 'phones', _name: p.extension })),
+                ...(dispatch || []).map(d => ({ ...d, _table: 'dispatch_phones', _name: d.extension }))
+            ];
+
+            if (allItems.length === 0) {
                 list.innerHTML = '<p style="text-align: center; color: #888;">無手機修改資料</p>';
                 return;
             }
 
-            // 2. Get last modification log for these phones to see changed fields
-            const phoneIds = phones.map(p => p.id);
-            // Fetch more logs to ensure we capture relevant changes
-            const { data: logs, error: logError } = await supabaseClient
-                .from('modification_logs')
-                .select('record_id, changed_fields, modified_at')
-                .eq('table_name', 'phones')
-                .in('record_id', phoneIds)
-                .order('modified_at', { ascending: false });
-                
-            // Map logs to phones (Collect ALL logs per phone, not just the first one)
-            const logsByPhone = {};
+            // 2. Get last modification log for these items
+            const phoneIds = (phones || []).map(p => p.id);
+            const dispatchIds = (dispatch || []).map(d => d.id);
+            
+            let logs = [];
+            
+            if (phoneIds.length > 0) {
+                const { data: pLogs } = await supabaseClient
+                    .from('modification_logs')
+                    .select('record_id, changed_fields, modified_at, table_name')
+                    .eq('table_name', 'phones')
+                    .in('record_id', phoneIds)
+                    .order('modified_at', { ascending: false });
+                if (pLogs) logs = logs.concat(pLogs);
+            }
+            
+            if (dispatchIds.length > 0) {
+                 const { data: dLogs } = await supabaseClient
+                    .from('modification_logs')
+                    .select('record_id, changed_fields, modified_at, table_name')
+                    .eq('table_name', 'dispatch_phones')
+                    .in('record_id', dispatchIds)
+                    .order('modified_at', { ascending: false });
+                 if (dLogs) logs = logs.concat(dLogs);
+            }
+
+            // Map logs
+            const logsByKey = {};
             if (logs) {
                 logs.forEach(log => {
-                    if (!logsByPhone[log.record_id]) {
-                        logsByPhone[log.record_id] = [];
+                    const key = log.table_name + '_' + log.record_id;
+                    if (!logsByKey[key]) {
+                        logsByKey[key] = [];
                     }
-                    logsByPhone[log.record_id].push(log);
+                    logsByKey[key].push(log);
                 });
             }
             
@@ -3988,28 +4034,24 @@ function handleTouchEnd(e) {
                 </div>`;
             }
 
-            phones.forEach(phone => {
-                const pLogs = logsByPhone[phone.id] || [];
-                // Filter logs that have actual content
+            allItems.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+            allItems.forEach(item => {
+                const key = item._table + '_' + item.id;
+                const pLogs = logsByKey[key] || [];
+                // Filter logs
                 const validLogs = pLogs.filter(l => l.changed_fields && l.changed_fields !== '無修改' && l.changed_fields.trim() !== '');
                 
                 let changesHtml = '';
                 if (validLogs.length === 0) {
                     changesHtml = '無詳細修改紀錄';
                 } else {
-                    // Aggregate changes, showing time for context
                     changesHtml = validLogs.map(l => {
-                        // Handle Timestamp: DB defaults to UTC but might return string without 'Z'
-                        // If we inserted with toISOString(), it has 'Z'.
-                        // If it came from default NOW(), it might be raw string.
                         let dateStr = l.modified_at;
                         if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-                            // Assume UTC if no timezone indicated
                             dateStr += 'Z';
                         }
                         const dateObj = new Date(dateStr);
-                        
-                        // Short date format: MM/DD HH:mm
                         const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
                         return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
                             <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${l.changed_fields}
@@ -4020,21 +4062,28 @@ function handleTouchEnd(e) {
                 let cancelBtn = '';
                 if (currentUser && currentUser.role === 'admin') {
                     cancelBtn = `
-                        <button onclick="cancelMobileEdit('${phone.id}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
+                        <button onclick="cancelMobileEdit('${item.id}', '${item._table}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
                             取消保護
                         </button>`;
                 }
+
+                const typeLabel = item._table === 'phones' ? '分機' : '調度';
+                const nameLabel = item._name || '未命名';
+                const badgeColor = item._table === 'phones' ? '#2196F3' : '#9C27B0';
 
                 html += `
                 <div style="background: #252525; border: 1px solid #444; padding: 8px; margin-bottom: 8px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); color: #e0e0e0;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
                         <div style="line-height: 1.2;">
-                            <div style="font-weight: bold; font-size: 0.9em; color: #2196F3;">分機: ${phone.extension || '未命名'}</div>
+                            <div style="font-weight: bold; font-size: 0.9em; color: ${badgeColor};">
+                                <span style="border:1px solid ${badgeColor}; padding:0 2px; border-radius:2px; font-size:0.8em; margin-right:4px;">${typeLabel}</span>
+                                ${nameLabel}
+                            </div>
                             <div style="font-size: 0.75em; color: #aaa;">
-                                ${phone.unit || '-'} | ${phone.location || '-'}
+                                ${item.unit || '-'} | ${item.location || '-'}
                             </div>
                             <div style="font-size: 0.7em; color: #888;">
-                                ${new Date(phone.updated_at).toLocaleString()}
+                                ${new Date(item.updated_at).toLocaleString()}
                             </div>
                         </div>
                         <div style="margin-left: 8px;">
@@ -4056,7 +4105,7 @@ function handleTouchEnd(e) {
         }
     }
 
-    async function cancelMobileEdit(id) {
+    async function cancelMobileEdit(id, table = 'phones') {
         if (!currentUser || currentUser.role !== 'admin') {
             alert('權限不足：只有管理員可以取消保護');
             return;
@@ -4066,7 +4115,7 @@ function handleTouchEnd(e) {
         
         try {
             const { error } = await supabaseClient
-                .from('phones')
+                .from(table)
                 .update({ is_mobile_edited: false })
                 .eq('id', id);
                 
@@ -4074,12 +4123,16 @@ function handleTouchEnd(e) {
             
             // Log Modification
             if (typeof logModification === 'function') {
-                 await logModification('phones', 'UPDATE', id, '取消保護 (從列表)', { is_mobile_edited: true }, { is_mobile_edited: false });
+                 await logModification(table, 'UPDATE', id, '取消保護 (從列表)', { is_mobile_edited: true }, { is_mobile_edited: false });
             }
             
             // Refresh
             showMobileDetails();
             updateMobileEditedCount();
+            
+            // Refresh main lists if needed
+            if (table === 'phones' && typeof searchPhones === 'function') searchPhones();
+            if (table === 'dispatch_phones' && typeof searchDispatch === 'function') searchDispatch();
             
         } catch (e) {
             alert('更新失敗: ' + e.message);
@@ -4092,24 +4145,37 @@ function handleTouchEnd(e) {
             return;
         }
 
-        if (!confirm('確定要取消「所有」資料的保護狀態嗎？')) return;
+        if (!confirm('確定要取消「所有」資料(包含分機與調度)的保護狀態嗎？')) return;
         
         try {
-            const { error } = await supabaseClient
+            // Cancel phones
+            const { error: errorPhones } = await supabaseClient
                 .from('phones')
                 .update({ is_mobile_edited: false })
                 .eq('is_mobile_edited', true);
                 
-            if (error) throw error;
+            if (errorPhones) throw errorPhones;
+
+            // Cancel dispatch
+            const { error: errorDispatch } = await supabaseClient
+                .from('dispatch_phones')
+                .update({ is_mobile_edited: false })
+                .eq('is_mobile_edited', true);
+                
+            if (errorDispatch) throw errorDispatch;
             
-            // Log Modification
+            // Log Modification (Generic log)
             if (typeof logModification === 'function') {
-                 await logModification('phones', 'UPDATE', null, '全部取消保護 (從列表)', null, null);
+                 await logModification('phones', 'UPDATE', null, '全部取消保護 (分機)', null, null);
+                 await logModification('dispatch_phones', 'UPDATE', null, '全部取消保護 (調度)', null, null);
             }
             
             alert('已全部取消保護');
             showMobileDetails();
             updateMobileEditedCount();
+            
+            if (typeof searchPhones === 'function') searchPhones();
+            if (typeof searchDispatch === 'function') searchDispatch();
             
         } catch (e) {
             alert('更新失敗: ' + e.message);
