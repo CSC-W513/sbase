@@ -2982,7 +2982,6 @@ function handleTouchEnd(e) {
 
         // Mark as mobile edited
         updates['is_mobile_edited'] = true;
-        updates['updated_at'] = new Date().toISOString(); // Update timestamp explicitly
         
         // Detect changes for notification
         let changedDetails = [];
