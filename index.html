@@ -1661,10 +1661,10 @@ function handleTouchEnd(e) {
 
     <!-- Mobile Edited Stats -->
     <div id="mobileEditStatsRow" style="margin-bottom: 15px; display: none;">
-        <div onclick="showMobileDetails()" style="background: #ff9800; color: white; padding: 10px 15px; border-radius: 8px; display: inline-flex; align-items: center; cursor: pointer; font-size: 0.95em; box-shadow: 0 2px 5px rgba(0,0,0,0.2); transition: transform 0.1s;">
-            <span style="margin-right: 8px;">📱 手機修改分機:</span>
-            <span id="mobileEditCount" style="font-weight: bold; font-size: 1.2em;">0</span>
-            <span style="margin-left: 8px;">筆 (點擊查看詳細)</span>
+        <div onclick="showMobileDetails()" style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 8px; display: inline-flex; align-items: center; cursor: pointer; font-size: 0.85em; box-shadow: 0 2px 5px rgba(0,0,0,0.2); transition: transform 0.1s;">
+            <span style="margin-right: 5px;">📱 手機修改分機:</span>
+            <span id="mobileEditCount" style="font-weight: bold; font-size: 1.1em;">0</span>
+            <span style="margin-left: 5px;">筆</span>
         </div>
     </div>
 
@@ -4047,7 +4047,9 @@ function handleTouchEnd(e) {
     }
 
     function closeMobileDetails() {
-        document.getElementById('mobileDetailsModal').style.display = 'none';
+        const modal = document.getElementById('mobileDetailsModal');
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
     }
 
     async function cancelMobileEdit(id) {
