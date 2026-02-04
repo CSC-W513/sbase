@@ -3892,27 +3892,8 @@ function handleTouchEnd(e) {
     <div id="lightbox-info"></div>
 </div>
 
-<!-- Mobile Edited Details Modal -->
-<div id="mobileDetailsModal" class="modal hidden" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
-    <div class="modal-content" style="background: white; width: 90%; max-width: 600px; max-height: 80vh; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-        <div class="modal-header" style="padding: 15px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; color: #333;">手機修改分機詳細資料</h3>
-            <button onclick="closeMobileDetails()" style="background: none; border: none; font-size: 1.5em; cursor: pointer; color: #666;">&times;</button>
-        </div>
-        
-        <div class="modal-body" style="padding: 0; overflow-y: auto; flex: 1;">
-            <div id="mobileDetailsList" style="padding: 15px;">
-                <!-- Content will be injected here -->
-                <p style="text-align: center;">載入中...</p>
-            </div>
-        </div>
+<!-- Mobile Edited Details Modal (Removed) -->
 
-        <div class="modal-footer" style="padding: 15px; border-top: 1px solid #ddd; background: #f9f9f9; display: flex; justify-content: flex-end; gap: 10px;">
-            <button id="btnCancelAllMobile" onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; display: none;">全部取消保護</button>
-            <button onclick="closeMobileDetails()" style="background: #757575; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">關閉</button>
-        </div>
-    </div>
-</div>
 
 <script>
     // ================= MOBILE EDITED LOGIC =================
@@ -3944,19 +3925,11 @@ function handleTouchEnd(e) {
     }
 
     async function showMobileDetails() {
-        const modal = document.getElementById('mobileDetailsModal');
-        const list = document.getElementById('mobileDetailsList');
-        const btnCancelAll = document.getElementById('btnCancelAllMobile');
+        const list = document.getElementById('modRecordList');
         
-        // Show/Hide "Cancel All" button based on role
-        if (currentUser && currentUser.role === 'admin') {
-            btnCancelAll.style.display = 'block';
-        } else {
-            btnCancelAll.style.display = 'none';
-        }
-        
-        modal.style.display = 'flex';
+        // Clear the list area
         list.innerHTML = '<p style="text-align: center; padding: 20px;">載入詳細資料中...</p>';
+        list.scrollTop = 0;
         
         try {
             // 1. Get all mobile edited phones
@@ -3969,16 +3942,12 @@ function handleTouchEnd(e) {
             if (error) throw error;
             
             if (!phones || phones.length === 0) {
-                list.innerHTML = '<p style="text-align: center; color: #666;">無資料</p>';
+                list.innerHTML = '<p style="text-align: center; color: #888;">無手機修改資料</p>';
                 return;
             }
 
             // 2. Get last modification log for these phones to see changed fields
             const phoneIds = phones.map(p => p.id);
-            // We can't easily do a "latest per group" in one query with Supabase/PostgREST easily without RPC.
-            // So we will fetch logs for these IDs and process in JS.
-            // Limit to reasonable amount.
-            
             const { data: logs, error: logError } = await supabaseClient
                 .from('modification_logs')
                 .select('record_id, changed_fields, modified_at')
@@ -3998,15 +3967,28 @@ function handleTouchEnd(e) {
             
             // 3. Render
             let html = '';
+            
+            // Add "Cancel All" button if Admin
+            if (currentUser && currentUser.role === 'admin') {
+                html += `
+                <div style="text-align: right; margin-bottom: 15px;">
+                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                        全部取消保護
+                    </button>
+                </div>`;
+            } else {
+                 html += `
+                <div style="text-align: right; margin-bottom: 15px;">
+                     <span style="color: #888; font-size: 0.9em;">(僅管理者可取消保護)</span>
+                </div>`;
+            }
+
             phones.forEach(phone => {
                 const log = latestLogs[phone.id];
                 let changes = '無詳細修改紀錄';
                 if (log && log.changed_fields) {
                     changes = log.changed_fields;
                 }
-                
-                // Format changes nicely if it's a string
-                // Often changed_fields is like "column: old -> new"
                 
                 let cancelBtn = '';
                 if (currentUser && currentUser.role === 'admin') {
@@ -4017,21 +3999,21 @@ function handleTouchEnd(e) {
                 }
 
                 html += `
-                <div style="background: white; border: 1px solid #eee; padding: 12px; margin-bottom: 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="background: #252525; border: 1px solid #444; padding: 12px; margin-bottom: 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.3); color: #e0e0e0;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
                         <div>
                             <div style="font-weight: bold; font-size: 1.1em; color: #2196F3;">分機: ${phone.extension || '未命名'}</div>
-                            <div style="font-size: 0.9em; color: #666;">
+                            <div style="font-size: 0.9em; color: #aaa;">
                                 ${phone.unit || '-'} | ${phone.location || '-'}
                             </div>
-                            <div style="font-size: 0.8em; color: #999; margin-top: 2px;">
+                            <div style="font-size: 0.8em; color: #888; margin-top: 2px;">
                                 修改時間: ${new Date(phone.updated_at).toLocaleString()}
                             </div>
                         </div>
                         ${cancelBtn}
                     </div>
-                    <div style="background: #f9f9f9; padding: 8px; border-radius: 4px; font-size: 0.9em; color: #444;">
-                        <strong>修改欄位:</strong><br>
+                    <div style="background: #1e1e1e; padding: 8px; border-radius: 4px; font-size: 0.9em; color: #ccc; border: 1px solid #333;">
+                        <strong style="color: #bbb;">修改欄位:</strong><br>
                         <div style="white-space: pre-wrap; margin-top: 4px;">${changes}</div>
                     </div>
                 </div>
@@ -4044,12 +4026,6 @@ function handleTouchEnd(e) {
             console.error('Error loading mobile details:', e);
             list.innerHTML = `<p style="color: red; text-align: center;">載入失敗: ${e.message}</p>`;
         }
-    }
-
-    function closeMobileDetails() {
-        const modal = document.getElementById('mobileDetailsModal');
-        modal.style.display = 'none';
-        modal.classList.add('hidden');
     }
 
     async function cancelMobileEdit(id) {
@@ -4104,7 +4080,7 @@ function handleTouchEnd(e) {
             }
             
             alert('已全部取消保護');
-            closeMobileDetails();
+            showMobileDetails();
             updateMobileEditedCount();
             
         } catch (e) {
