@@ -52,7 +52,6 @@
         window.history.pushState({ page: 'modRecord' }, '', '#modRecord');
         // Load initial times
         updateLastModTimes();
-        // Update Mobile Edited Count
         updateMobileEditedCount();
     }
 
@@ -338,6 +337,8 @@
 
         try {
             // 2. Insert Log
+            // Use client-side timestamp to ensure accuracy of user action time and handle timezone correctly (stored as ISO UTC)
+            const now = new Date();
             const { error } = await supabaseClient
                 .from('modification_logs')
                 .insert({
@@ -347,7 +348,8 @@
                     changed_fields: changes,
                     old_data: oldData,
                     new_data: newData,
-                    modified_by: currentUser ? currentUser.username : '訪客'
+                    modified_by: currentUser ? currentUser.username : '訪客',
+                    modified_at: now.toISOString() // Explicitly set timestamp
                 });
                 
             if (error) {
@@ -1332,55 +1334,6 @@ function handleTouchEnd(e) {
         .btn-images { background-color: #4CAF50; color: #FFEB3B; } /* Green bg, Yellow text */
         .btn-search { background-color: #FF9800; color: #D32F2F; font-weight: bold; } /* Orange bg, Red text */
 
-        /* Mobile Edited Block Styles */
-        .mobile-edited-block {
-            background-color: #ff9800; /* Orange */
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            cursor: pointer;
-            text-align: center;
-            width: fit-content;
-            transition: transform 0.2s;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            font-size: 0.8rem;
-        }
-        .mobile-edited-block:active {
-            transform: scale(0.95);
-        }
-        .mobile-edited-block.hidden {
-            display: none;
-        }
-        
-        .mobile-edited-item {
-            background: #f9f9f9;
-            border-left: 4px solid #ff9800;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .mobile-edited-info {
-            flex-grow: 1;
-            font-size: 0.9rem;
-        }
-        .mobile-edited-actions {
-            margin-left: 10px;
-            flex-shrink: 0;
-        }
-        .cancel-btn {
-            background: #d32f2f;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-
         /* Back to Top Button */
         #backToTop {
             position: fixed;
@@ -1709,9 +1662,13 @@ function handleTouchEnd(e) {
         <button onclick="hideModRecordPage()" style="background: #757575;">返回查詢</button>
     </div>
 
-    <!-- Mobile Edited Block -->
-    <div id="mobileEditedBlock" class="mobile-edited-block hidden" onclick="showMobileEditedDetails()">
-        <span style="font-size: 0.8rem;">📱 手機修改分機: <span id="mobileEditedCount">0</span> 筆</span>
+    <!-- Mobile Edited Stats -->
+    <div id="mobileEditStatsRow" style="margin-bottom: 15px; display: none;">
+        <div onclick="showMobileDetails()" style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 8px; display: inline-flex; align-items: center; cursor: pointer; font-size: 0.85em; box-shadow: 0 2px 5px rgba(0,0,0,0.2); transition: transform 0.1s;">
+            <span style="margin-right: 5px;">📱 手機修改分機:</span>
+            <span id="mobileEditCount" style="font-weight: bold; font-size: 1.1em;">0</span>
+            <span style="margin-left: 5px;">筆</span>
+        </div>
     </div>
 
     <div class="mod-nav">
@@ -2262,238 +2219,6 @@ function handleTouchEnd(e) {
         } else {
             el.classList.add('hidden');
             btn.innerText = `顯示其餘 ${count} 筆結果`;
-        }
-    }
-
-    // ================= MOBILE EDITED LOGIC =================
-    async function updateMobileEditedCount() {
-        if (!supabaseClient) return;
-        
-        try {
-            // Count phones
-            const { count: phonesCount, error: err1 } = await supabaseClient
-                .from('phones')
-                .select('*', { count: 'exact', head: true })
-                .eq('is_mobile_edited', true);
-                
-            // Count dispatch
-            const { count: dispatchCount, error: err2 } = await supabaseClient
-                .from('dispatch_phones')
-                .select('*', { count: 'exact', head: true })
-                .eq('is_mobile_edited', true);
-                
-            if (err1 || err2) {
-                console.error('Error counting mobile edited:', err1 || err2);
-                return;
-            }
-            
-            const total = (phonesCount || 0) + (dispatchCount || 0);
-            const block = document.getElementById('mobileEditedBlock');
-            const countEl = document.getElementById('mobileEditedCount');
-            
-            countEl.innerText = total;
-            
-            if (total > 0) {
-                block.classList.remove('hidden');
-            } else {
-                block.classList.add('hidden');
-            }
-        } catch (e) {
-            console.error('Failed to update mobile edited count:', e);
-        }
-    }
-
-    function closeMobileEditedModal() {
-        document.getElementById('mobileEditedModal').classList.add('hidden');
-    }
-
-    async function showMobileEditedDetails() {
-        const modal = document.getElementById('mobileEditedModal');
-        const listDiv = document.getElementById('mobileEditedList');
-        const cancelAllBtn = document.getElementById('cancelAllProtectionBtn');
-        
-        modal.classList.remove('hidden');
-        listDiv.innerHTML = '<p style="text-align: center;">載入中...</p>';
-        
-        // Admin check for cancel all button
-        if (currentUser && currentUser.role === 'admin') {
-            cancelAllBtn.style.display = 'block';
-        } else {
-            cancelAllBtn.style.display = 'none';
-        }
-        
-        try {
-            // Fetch Phones
-            const { data: phones, error: err1 } = await supabaseClient
-                .from('phones')
-                .select('id, extension, unit, location, modified_at') // Ensure modified_at exists? Standard supabase usually has it if defined, otherwise we check mod logs
-                .eq('is_mobile_edited', true);
-                
-            // Fetch Dispatch
-            const { data: dispatch, error: err2 } = await supabaseClient
-                .from('dispatch_phones')
-                .select('id, extension, unit, location')
-                .eq('is_mobile_edited', true);
-                
-            if (err1 || err2) throw (err1 || err2);
-            
-            // Merge and prepare
-            let items = [];
-            if (phones) items = items.concat(phones.map(p => ({ ...p, table: 'phones', type: '分機' })));
-            if (dispatch) items = items.concat(dispatch.map(d => ({ ...d, table: 'dispatch_phones', type: '調度' })));
-            
-            if (items.length === 0) {
-                listDiv.innerHTML = '<p style="text-align: center;">無資料</p>';
-                return;
-            }
-            
-            // Fetch Latest Logs for these items to get "modified fields" and "time"
-            // Since we might not have `modified_at` on the table itself or it might be just system time,
-            // using the log is more accurate for "what changed".
-            // But doing N queries is bad.
-            // Optimization: Get logs where record_id in IDs.
-            
-            const ids = items.map(i => i.id);
-            // Chunk IDs if too many (Supabase might limit URL length)
-            // For now assume < 100 items usually.
-            
-            const { data: logs, error: logErr } = await supabaseClient
-                .from('modification_logs')
-                .select('record_id, modified_at, changed_fields')
-                .in('record_id', ids)
-                .order('modified_at', { ascending: false });
-                
-            // Map logs to items (latest log per item)
-            const logMap = {};
-            if (logs) {
-                logs.forEach(log => {
-                    if (!logMap[log.record_id]) {
-                        logMap[log.record_id] = log;
-                    }
-                });
-            }
-            
-            // Render
-            let html = '';
-            items.forEach(item => {
-                const log = logMap[item.id];
-                const time = log ? new Date(log.modified_at).toLocaleString() : '未知時間';
-                let changedFields = log ? log.changed_fields : '無紀錄';
-                
-                // Format changed fields if it's too long or JSON
-                // Usually it's a string from previous logic: "分機: xxx\n欄位: ..."
-                if (changedFields && changedFields.length > 50) {
-                     changedFields = changedFields.substring(0, 50) + '...';
-                }
-                
-                let cancelBtn = '';
-                if (currentUser && currentUser.role === 'admin') {
-                    cancelBtn = `<button onclick="cancelProtectionFromModal('${item.id}', '${item.table}')" class="cancel-btn">取消保護</button>`;
-                }
-                
-                html += `
-                <div class="mobile-edited-item" id="item-${item.id}">
-                    <div class="mobile-edited-info">
-                        <div><strong>${item.extension}</strong> <span style="color:#888; font-size: 0.8em;">(${item.type} - ${item.unit || '-'} / ${item.location || '-'})</span></div>
-                        <div style="font-size: 0.8em; color: #555; margin-top: 4px;">修改時間: ${time}</div>
-                        <div style="font-size: 0.8em; color: #795548; margin-top: 2px;">修改欄位: ${changedFields}</div>
-                    </div>
-                    <div class="mobile-edited-actions">
-                        ${cancelBtn}
-                    </div>
-                </div>`;
-            });
-            
-            listDiv.innerHTML = html;
-            
-        } catch (e) {
-            console.error('Details error:', e);
-            listDiv.innerHTML = '<p style="color: red; text-align: center;">載入失敗</p>';
-        }
-    }
-
-    async function cancelProtectionFromModal(id, table) {
-        if (!currentUser || currentUser.role !== 'admin') {
-            alert('權限不足');
-            return;
-        }
-        
-        if (!confirm('確定要取消保護嗎？')) return;
-        
-        try {
-            const { error } = await supabaseClient
-                .from(table)
-                .update({ is_mobile_edited: false })
-                .eq('id', id);
-                
-            if (error) throw error;
-            
-            // Log
-            await logModification(table, 'UPDATE', id, '取消保護 (Mobile Edited)', { is_mobile_edited: true }, { is_mobile_edited: false });
-            
-            // Remove from UI
-            const el = document.getElementById(`item-${id}`);
-            if (el) el.remove();
-            
-            // Update Count
-            updateMobileEditedCount();
-            
-            // Check if empty
-            const listDiv = document.getElementById('mobileEditedList');
-            if (listDiv.children.length === 0) {
-                listDiv.innerHTML = '<p style="text-align: center;">無資料</p>';
-                // Hide block
-                document.getElementById('mobileEditedBlock').classList.add('hidden');
-                // Close modal maybe? Or keep open to show empty.
-            }
-            
-        } catch (e) {
-            alert('操作失敗: ' + e.message);
-        }
-    }
-
-    async function cancelAllProtection() {
-        if (!currentUser || currentUser.role !== 'admin') {
-            alert('權限不足');
-            return;
-        }
-        
-        if (!confirm('警告：確定要取消「所有」分機的手機修改保護嗎？')) return;
-        
-        const btn = document.getElementById('cancelAllProtectionBtn');
-        const originalText = btn.innerText;
-        btn.innerText = '處理中...';
-        btn.disabled = true;
-        
-        try {
-            // Update Phones
-            const { error: err1 } = await supabaseClient
-                .from('phones')
-                .update({ is_mobile_edited: false })
-                .eq('is_mobile_edited', true);
-                
-            // Update Dispatch
-            const { error: err2 } = await supabaseClient
-                .from('dispatch_phones')
-                .update({ is_mobile_edited: false })
-                .eq('is_mobile_edited', true);
-                
-            if (err1 || err2) throw (err1 || err2);
-            
-            // Log - Generic log for bulk action
-            await logModification('phones', 'UPDATE_BATCH', null, '批次取消所有手機保護', null, null);
-            await logModification('dispatch_phones', 'UPDATE_BATCH', null, '批次取消所有手機保護', null, null);
-            
-            alert('已全部取消保護');
-            closeMobileEditedModal();
-            updateMobileEditedCount();
-            
-        } catch (e) {
-            console.error('Cancel all error:', e);
-            alert('部分或全部操作失敗: ' + e.message);
-        } finally {
-            btn.innerText = originalText;
-            btn.disabled = false;
         }
     }
 
@@ -4170,22 +3895,226 @@ function handleTouchEnd(e) {
     <div id="lightbox-info"></div>
 </div>
 
-<!-- Mobile Edited Details Modal -->
-<div id="mobileEditedModal" class="modal-overlay hidden">
-    <div class="modal-content" style="max-width: 600px; width: 95%;">
-        <div class="modal-header">
-            <h3>手機修改清單</h3>
-            <button onclick="closeMobileEditedModal()" class="close-btn">×</button>
-        </div>
-        <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
-            <div id="mobileEditedList">載入中...</div>
-        </div>
-        <div class="modal-footer" style="margin-top: 15px; text-align: right; display: flex; justify-content: space-between; align-items: center;">
-            <button id="cancelAllProtectionBtn" onclick="cancelAllProtection()" style="background: #d32f2f; color: white; display: none;">全部取消保護</button>
-            <button onclick="closeMobileEditedModal()" style="background: #757575;">關閉</button>
-        </div>
-    </div>
-</div>
+<!-- Mobile Edited Details Modal (Removed) -->
 
+
+<script>
+    // ================= MOBILE EDITED LOGIC =================
+
+    async function updateMobileEditedCount() {
+        if (!supabaseClient) return;
+        
+        const row = document.getElementById('mobileEditStatsRow');
+        const countEl = document.getElementById('mobileEditCount');
+        
+        try {
+            const { count, error } = await supabaseClient
+                .from('phones')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_mobile_edited', true);
+                
+            if (error) throw error;
+            
+            countEl.innerText = count || 0;
+            
+            if (count > 0) {
+                row.style.display = 'block';
+            } else {
+                row.style.display = 'none';
+            }
+        } catch (e) {
+            console.error('Error fetching mobile edited count:', e);
+        }
+    }
+
+    async function showMobileDetails() {
+        const list = document.getElementById('modRecordList');
+        
+        // Clear the list area
+        list.innerHTML = '<p style="text-align: center; padding: 20px;">載入詳細資料中...</p>';
+        list.scrollTop = 0;
+        
+        try {
+            // 1. Get all mobile edited phones
+            const { data: phones, error } = await supabaseClient
+                .from('phones')
+                .select('id, extension, unit, location, updated_at')
+                .eq('is_mobile_edited', true)
+                .order('updated_at', { ascending: false });
+                
+            if (error) throw error;
+            
+            if (!phones || phones.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #888;">無手機修改資料</p>';
+                return;
+            }
+
+            // 2. Get last modification log for these phones to see changed fields
+            const phoneIds = phones.map(p => p.id);
+            // Fetch more logs to ensure we capture relevant changes
+            const { data: logs, error: logError } = await supabaseClient
+                .from('modification_logs')
+                .select('record_id, changed_fields, modified_at')
+                .eq('table_name', 'phones')
+                .in('record_id', phoneIds)
+                .order('modified_at', { ascending: false });
+                
+            // Map logs to phones (Collect ALL logs per phone, not just the first one)
+            const logsByPhone = {};
+            if (logs) {
+                logs.forEach(log => {
+                    if (!logsByPhone[log.record_id]) {
+                        logsByPhone[log.record_id] = [];
+                    }
+                    logsByPhone[log.record_id].push(log);
+                });
+            }
+            
+            // 3. Render
+            let html = '';
+            
+            // Add "Cancel All" button if Admin
+            if (currentUser && currentUser.role === 'admin') {
+                html += `
+                <div style="text-align: right; margin-bottom: 10px;">
+                    <button onclick="cancelAllMobileEdits()" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                        全部取消保護
+                    </button>
+                </div>`;
+            } else {
+                 html += `
+                <div style="text-align: right; margin-bottom: 10px;">
+                     <span style="color: #888; font-size: 0.75em;">(僅管理者可取消保護)</span>
+                </div>`;
+            }
+
+            phones.forEach(phone => {
+                const pLogs = logsByPhone[phone.id] || [];
+                // Filter logs that have actual content
+                const validLogs = pLogs.filter(l => l.changed_fields && l.changed_fields !== '無修改' && l.changed_fields.trim() !== '');
+                
+                let changesHtml = '';
+                if (validLogs.length === 0) {
+                    changesHtml = '無詳細修改紀錄';
+                } else {
+                    // Aggregate changes, showing time for context
+                    changesHtml = validLogs.map(l => {
+                        // Handle Timestamp: DB defaults to UTC but might return string without 'Z'
+                        // If we inserted with toISOString(), it has 'Z'.
+                        // If it came from default NOW(), it might be raw string.
+                        let dateStr = l.modified_at;
+                        if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+                            // Assume UTC if no timezone indicated
+                            dateStr += 'Z';
+                        }
+                        const dateObj = new Date(dateStr);
+                        
+                        // Short date format: MM/DD HH:mm
+                        const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+                        return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
+                            <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${l.changed_fields}
+                        </div>`;
+                    }).join('');
+                }
+                
+                let cancelBtn = '';
+                if (currentUser && currentUser.role === 'admin') {
+                    cancelBtn = `
+                        <button onclick="cancelMobileEdit('${phone.id}')" style="background: white; border: 1px solid #d32f2f; color: #d32f2f; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; cursor: pointer; white-space: nowrap;">
+                            取消保護
+                        </button>`;
+                }
+
+                html += `
+                <div style="background: #252525; border: 1px solid #444; padding: 8px; margin-bottom: 8px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); color: #e0e0e0;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
+                        <div style="line-height: 1.2;">
+                            <div style="font-weight: bold; font-size: 0.9em; color: #2196F3;">分機: ${phone.extension || '未命名'}</div>
+                            <div style="font-size: 0.75em; color: #aaa;">
+                                ${phone.unit || '-'} | ${phone.location || '-'}
+                            </div>
+                            <div style="font-size: 0.7em; color: #888;">
+                                ${new Date(phone.updated_at).toLocaleString()}
+                            </div>
+                        </div>
+                        <div style="margin-left: 8px;">
+                            ${cancelBtn}
+                        </div>
+                    </div>
+                    <div style="background: #1e1e1e; padding: 5px; border-radius: 3px; font-size: 0.75em; color: #ccc; border: 1px solid #333; line-height: 1.3;">
+                        <div style="white-space: pre-wrap;">${changesHtml}</div>
+                    </div>
+                </div>
+                `;
+            });
+            
+            list.innerHTML = html;
+            
+        } catch (e) {
+            console.error('Error loading mobile details:', e);
+            list.innerHTML = `<p style="color: red; text-align: center;">載入失敗: ${e.message}</p>`;
+        }
+    }
+
+    async function cancelMobileEdit(id) {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('權限不足：只有管理員可以取消保護');
+            return;
+        }
+        
+        if (!confirm('確定要取消此筆資料的保護狀態嗎？')) return;
+        
+        try {
+            const { error } = await supabaseClient
+                .from('phones')
+                .update({ is_mobile_edited: false })
+                .eq('id', id);
+                
+            if (error) throw error;
+            
+            // Log Modification
+            if (typeof logModification === 'function') {
+                 await logModification('phones', 'UPDATE', id, '取消保護 (從列表)', { is_mobile_edited: true }, { is_mobile_edited: false });
+            }
+            
+            // Refresh
+            showMobileDetails();
+            updateMobileEditedCount();
+            
+        } catch (e) {
+            alert('更新失敗: ' + e.message);
+        }
+    }
+
+    async function cancelAllMobileEdits() {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('權限不足：只有管理員可以取消保護');
+            return;
+        }
+
+        if (!confirm('確定要取消「所有」資料的保護狀態嗎？')) return;
+        
+        try {
+            const { error } = await supabaseClient
+                .from('phones')
+                .update({ is_mobile_edited: false })
+                .eq('is_mobile_edited', true);
+                
+            if (error) throw error;
+            
+            // Log Modification
+            if (typeof logModification === 'function') {
+                 await logModification('phones', 'UPDATE', null, '全部取消保護 (從列表)', null, null);
+            }
+            
+            alert('已全部取消保護');
+            showMobileDetails();
+            updateMobileEditedCount();
+            
+        } catch (e) {
+            alert('更新失敗: ' + e.message);
+        }
+    }
+</script>
 </body>
 </html>
