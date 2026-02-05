@@ -2979,6 +2979,8 @@ function handleTouchEnd(e) {
 
         // Mark as mobile edited
         updates['is_mobile_edited'] = true;
+        // Update updated_at timestamp explicitly to ensure correct time display
+        updates['updated_at'] = new Date().toISOString();
         
         // Detect changes for notification
         let changedDetails = [];
@@ -3000,6 +3002,9 @@ function handleTouchEnd(e) {
             
             // Compare
             for (const key in updates) {
+                // Skip internal fields from change log
+                if (key === 'is_mobile_edited' || key === 'updated_at') continue;
+
                 let newVal = updates[key];
                 let oldVal = originalValues[key] || '';
                 
@@ -4043,8 +4048,18 @@ function handleTouchEnd(e) {
                         if (dateStr && typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+')) dateStr += 'Z';
                         const dateObj = new Date(dateStr);
                         const timeStr = `${(dateObj.getMonth()+1).toString().padStart(2, '0')}/${dateObj.getDate().toString().padStart(2, '0')} ${dateObj.getHours().toString().padStart(2, '0')}:${dateObj.getMinutes().toString().padStart(2, '0')}`;
+                        
+                        // Filter out 'is_mobile_edited' from display
+                        let displayFields = l.changed_fields || '';
+                        if (displayFields.includes('is_mobile_edited')) {
+                            displayFields = displayFields.split('\n')
+                                .filter(line => !line.includes('is_mobile_edited'))
+                                .join('\n');
+                        }
+                        if (!displayFields.trim()) return ''; // Skip if empty after filtering
+
                         return `<div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed #444; last-child:border:none;">
-                            <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${l.changed_fields}
+                            <span style="color: #8fa; font-size: 0.85em;">[${timeStr}]</span> ${displayFields}
                         </div>`;
                     }).join('');
                 }
